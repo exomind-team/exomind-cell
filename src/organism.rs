@@ -89,9 +89,9 @@ impl Config {
             medium_size: 256,
             emit_cost: 1,
             sample_cost: 1,
-            total_ticks: 100_000,
+            total_ticks: 500_000,
             snapshot_interval: 1000,
-            genome_dump_interval: 10_000,
+            genome_dump_interval: 50_000,
         }
     }
 

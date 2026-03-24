@@ -15,9 +15,12 @@ pub struct SteadyState {
 }
 
 pub fn compute_steady_state(snapshots: &[Snapshot]) -> SteadyState {
+    // Use second half of the run for steady-state analysis
+    let max_tick = snapshots.iter().map(|s| s.tick).max().unwrap_or(100_000);
+    let half = max_tick / 2;
     let second_half: Vec<&Snapshot> = snapshots
         .iter()
-        .filter(|s| s.tick > 50000 && s.population > 0)
+        .filter(|s| s.tick > half && s.population > 0)
         .collect();
 
     if second_half.is_empty() {

@@ -1,0 +1,150 @@
+=== [oldest] Tick 50000 | Age 50000 | Energy 998 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 50000 | Age 23 | Energy 7 | Freshness 255 | Gen 263 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 100000 | Age 100000 | Energy 1000 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 100000 | Age 92 | Energy 21 | Freshness 255 | Gen 277 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 150000 | Age 150000 | Energy 997 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 150000 | Age 115 | Energy 47 | Freshness 255 | Gen 287 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 200000 | Age 200000 | Energy 998 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 200000 | Age 82 | Energy 13 | Freshness 255 | Gen 290 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 250000 | Age 250000 | Energy 1000 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 250000 | Age 20 | Energy 11 | Freshness 255 | Gen 292 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 300000 | Age 300000 | Energy 997 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 300000 | Age 2347 | Energy 29 | Freshness 255 | Gen 296 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 350000 | Age 350000 | Energy 998 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 350000 | Age 2 | Energy 27 | Freshness 255 | Gen 297 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 400000 | Age 400000 | Energy 1000 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 400000 | Age 5 | Energy 28 | Freshness 255 | Gen 301 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 450000 | Age 450000 | Energy 997 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 450000 | Age 4 | Energy 27 | Freshness 255 | Gen 308 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
+=== [oldest] Tick 500000 | Age 500000 | Energy 998 | Freshness 255 | Gen 0 | Code len 3 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] JMP -2
+
+=== [most_evolved] Tick 500000 | Age 111 | Energy 48 | Freshness 255 | Gen 318 | Code len 8 ===
+  [  0] EAT
+  [  1] REFRESH
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] NOP
+  [  6] DIVIDE
+  [  7] EAT
+
