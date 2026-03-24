@@ -10,15 +10,39 @@ mod instruction;
 mod organism;
 mod world;
 mod experiment;
+mod tui;
 
 use std::fs;
 use organism::Config;
 use experiment::{run_experiment, run_stigmergy_experiment, analyze_and_report, compute_steady_state, SteadyState};
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // TUI mode: cargo run -- --tui [--no-decay] [--stigmergy]
+    if args.iter().any(|a| a == "--tui") {
+        let mut config = Config::experimental();
+        if args.iter().any(|a| a == "--no-decay") {
+            config.freshness_decay = false;
+        }
+        if !args.iter().any(|a| a == "--stigmergy") {
+            config.medium_size = 0; // Disable medium unless explicitly requested
+        }
+        config.total_ticks = 200_000; // Longer run for TUI observation
+        config.snapshot_interval = 100; // More frequent snapshots
+        config.genome_dump_interval = 0; // Disable file I/O in TUI mode
+
+        eprintln!("Starting TUI mode...");
+        if let Err(e) = tui::run_tui(config) {
+            eprintln!("TUI error: {}", e);
+        }
+        return;
+    }
+
     eprintln!("D0 Virtual Machine — Operational Closure Experiment v2");
     eprintln!("======================================================");
-    eprintln!("  E_MAX = 1000, 5 seeds, genome dumps every 10k ticks\n");
+    eprintln!("  E_MAX = 1000, 5 seeds, genome dumps every 10k ticks");
+    eprintln!("  Use --tui for real-time visualization\n");
 
     let seeds: Vec<u64> = vec![42, 137, 256, 999, 2026];
     let num_seeds = seeds.len();

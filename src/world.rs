@@ -110,6 +110,14 @@ impl World {
         }
     }
 
+    // Accessors for interval counters (used by TUI)
+    pub fn interval_eat(&self) -> u64 { self.interval_eat }
+    pub fn interval_refresh(&self) -> u64 { self.interval_refresh }
+    pub fn interval_divide(&self) -> u64 { self.interval_divide }
+    pub fn interval_emit(&self) -> u64 { self.interval_emit }
+    pub fn interval_sample(&self) -> u64 { self.interval_sample }
+    pub fn interval_instructions(&self) -> u64 { self.interval_instructions }
+
     pub fn add_organism(&mut self, org: Organism) {
         if self.organisms.len() < self.config.max_organisms {
             self.organisms.push(org);
