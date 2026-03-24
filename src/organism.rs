@@ -91,6 +91,15 @@ impl Config {
         c.freshness_decay = false;
         c
     }
+
+    /// Competition config: lower food creates resource pressure.
+    /// Tests whether boom-bust cycles and resource specialization emerge.
+    pub fn competition(food_per_tick: i32) -> Self {
+        let mut c = Self::experimental();
+        c.food_per_tick = food_per_tick;
+        c.total_ticks = 100_000;
+        c
+    }
 }
 
 /// Seed A: Minimal self-sustaining loop (EAT -> REFRESH -> JMP).

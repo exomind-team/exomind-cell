@@ -133,6 +133,26 @@ fn main() {
         }
     }
 
+    // Competition experiments: vary food pressure
+    report.push_str("\n---\n\n");
+    report.push_str("## Competition Experiment: Varying Food Pressure\n\n");
+    report.push_str("Testing how food scarcity affects population dynamics with freshness_decay=true.\n\n");
+    report.push_str("| Food/tick | Survived | Avg Pop | Avg Energy | EAT% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|-----------|----------|---------|-----------|------|----------|--------|\n");
+
+    for food in [10, 20, 30, 40, 50, 75, 100] {
+        let config = Config::competition(food);
+        let name = format!("competition_food_{}", food);
+        let snaps = run_experiment(&name, config, 42);
+        let ss = compute_steady_state(&snaps);
+        report.push_str(&format!(
+            "| {} | {} | {:.1} | {:.0} | {:.1} | {:.1} | {:.1} |\n",
+            food, if ss.survived { "YES" } else { "NO" },
+            ss.avg_population, ss.avg_energy,
+            ss.eat_ratio * 100.0, ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
+        ));
+    }
+
     report.push_str("\n---\n\n");
     report.push_str("## Detailed Results (Seed 42)\n\n");
     report.push_str(&single_report);
