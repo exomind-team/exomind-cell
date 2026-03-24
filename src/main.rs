@@ -158,8 +158,10 @@ struct Config {
     divide_cost: i32,
     instruction_cost: i32,
     initial_energy: i32,
+    e_max: i32,             // Energy cap — prevents unbounded accumulation
     total_ticks: u64,
     snapshot_interval: u64, // How often to record statistics
+    genome_dump_interval: u64, // How often to dump genomes (0 = disabled)
 }
 
 impl Config {
@@ -184,8 +186,10 @@ impl Config {
             divide_cost: 30,
             instruction_cost: 1,
             initial_energy: 100,
+            e_max: 1000,             // Energy cap — organism can't store more than this
             total_ticks: 100_000,
             snapshot_interval: 1000,
+            genome_dump_interval: 10_000, // Dump genomes every 10k ticks
         }
     }
 
@@ -269,6 +273,7 @@ struct World {
     config: Config,
     rng: StdRng,
     snapshots: Vec<Snapshot>,
+    genome_dumps: Vec<GenomeDump>, // Genome snapshots of longest-lived organism
 
     // Accumulated counters for snapshot interval
     interval_eat: u64,
@@ -282,6 +287,18 @@ struct World {
     low_freshness_total_instructions: u64,
 }
 
+/// A snapshot of an organism's genome at a point in time.
+#[derive(Debug, Clone)]
+struct GenomeDump {
+    tick: u64,
+    label: String,      // "oldest" or "most_evolved"
+    age: u64,
+    energy: i32,
+    freshness: u8,
+    generation: u32,
+    code: Vec<Instruction>,
+}
+
 impl World {
     fn new(config: Config, seed: u64) -> Self {
         World {
@@ -291,6 +308,7 @@ impl World {
             config,
             rng: StdRng::seed_from_u64(seed),
             snapshots: Vec::new(),
+            genome_dumps: Vec::new(),
             interval_eat: 0,
             interval_refresh: 0,
             interval_divide: 0,
@@ -472,13 +490,21 @@ impl World {
                 if low_energy {
                     self.low_energy_eats += 1;
                 }
-                if self.food_pool >= self.config.eat_energy {
-                    self.food_pool -= self.config.eat_energy;
-                    org.energy += self.config.eat_energy;
-                } else if self.food_pool > 0 {
-                    org.energy += self.food_pool;
-                    self.food_pool = 0;
+                // Only eat if below energy cap
+                let can_absorb = (self.config.e_max - org.energy).max(0);
+                if can_absorb > 0 {
+                    let want = self.config.eat_energy.min(can_absorb);
+                    if self.food_pool >= want {
+                        self.food_pool -= want;
+                        org.energy += want;
+                    } else if self.food_pool > 0 {
+                        let take = self.food_pool.min(can_absorb);
+                        org.energy += take;
+                        self.food_pool -= take;
+                    }
                 }
+                // Clamp energy to e_max (safety)
+                org.energy = org.energy.min(self.config.e_max);
                 org.ip += 1;
             }
 
@@ -590,6 +616,11 @@ impl World {
         if self.tick % self.config.snapshot_interval == 0 {
             self.take_snapshot();
         }
+
+        // 6. Dump genomes if needed
+        if self.config.genome_dump_interval > 0 && self.tick % self.config.genome_dump_interval == 0 {
+            self.dump_genome();
+        }
     }
 
     /// Run the full simulation.
@@ -626,6 +657,49 @@ impl World {
         if self.tick % self.config.snapshot_interval != 0 {
             self.take_snapshot();
         }
+    }
+
+    /// Dump the genome of both the longest-lived and highest-generation organisms.
+    fn dump_genome(&mut self) {
+        // Longest-lived (oldest)
+        if let Some(oldest) = self.organisms.iter().filter(|o| o.alive).max_by_key(|o| o.age) {
+            self.genome_dumps.push(GenomeDump {
+                tick: self.tick,
+                label: "oldest".to_string(),
+                age: oldest.age,
+                energy: oldest.energy,
+                freshness: oldest.freshness,
+                generation: oldest.generation,
+                code: oldest.code.clone(),
+            });
+        }
+        // Highest generation (most evolved)
+        if let Some(most_evolved) = self.organisms.iter().filter(|o| o.alive).max_by_key(|o| o.generation) {
+            self.genome_dumps.push(GenomeDump {
+                tick: self.tick,
+                label: "most_evolved".to_string(),
+                age: most_evolved.age,
+                energy: most_evolved.energy,
+                freshness: most_evolved.freshness,
+                generation: most_evolved.generation,
+                code: most_evolved.code.clone(),
+            });
+        }
+    }
+
+    /// Export genome dumps to a text file.
+    fn export_genomes(&self, path: &str) {
+        let mut file = fs::File::create(path).expect("Failed to create genome dump file");
+        for dump in &self.genome_dumps {
+            writeln!(file, "=== [{}] Tick {} | Age {} | Energy {} | Freshness {} | Gen {} | Code len {} ===",
+                dump.label, dump.tick, dump.age, dump.energy, dump.freshness, dump.generation, dump.code.len()
+            ).unwrap();
+            for (i, instr) in dump.code.iter().enumerate() {
+                writeln!(file, "  [{:3}] {}", i, instr).unwrap();
+            }
+            writeln!(file).unwrap();
+        }
+        eprintln!("  Exported {} genome dumps to {}", self.genome_dumps.len(), path);
     }
 
     /// Export snapshots to CSV.
@@ -728,8 +802,15 @@ fn run_experiment(name: &str, config: Config, seed: u64) -> Vec<Snapshot> {
     world.run();
 
     // Export CSV
-    let csv_path = format!("D:/project/d0-vm/{}.csv", name.replace(' ', "_"));
+    let safe_name = name.replace(' ', "_");
+    let csv_path = format!("D:/project/d0-vm/{}.csv", safe_name);
     world.export_csv(&csv_path);
+
+    // Export genome dumps
+    if !world.genome_dumps.is_empty() {
+        let genome_path = format!("D:/project/d0-vm/{}_genomes.txt", safe_name);
+        world.export_genomes(&genome_path);
+    }
 
     world.snapshots
 }
@@ -981,27 +1062,178 @@ fn analyze_and_report(
 // Main
 // ============================================================================
 
+/// Compute steady-state averages from the second half of snapshots.
+struct SteadyState {
+    eat_ratio: f64,
+    refresh_ratio: f64,
+    divide_ratio: f64,
+    low_energy_eat_rate: f64,
+    avg_population: f64,
+    avg_energy: f64,
+    survived: bool,
+}
+
+fn compute_steady_state(snapshots: &[Snapshot]) -> SteadyState {
+    let second_half: Vec<&Snapshot> = snapshots
+        .iter()
+        .filter(|s| s.tick > 50000 && s.population > 0)
+        .collect();
+
+    if second_half.is_empty() {
+        return SteadyState {
+            eat_ratio: 0.0,
+            refresh_ratio: 0.0,
+            divide_ratio: 0.0,
+            low_energy_eat_rate: 0.0,
+            avg_population: 0.0,
+            avg_energy: 0.0,
+            survived: snapshots.last().map(|s| s.population > 0).unwrap_or(false),
+        };
+    }
+
+    let n = second_half.len() as f64;
+    SteadyState {
+        eat_ratio: second_half.iter().map(|s| s.eat_ratio).sum::<f64>() / n,
+        refresh_ratio: second_half.iter().map(|s| s.refresh_ratio).sum::<f64>() / n,
+        divide_ratio: second_half.iter().map(|s| s.divide_ratio).sum::<f64>() / n,
+        low_energy_eat_rate: second_half.iter().map(|s| s.low_energy_eat_rate).sum::<f64>() / n,
+        avg_population: second_half.iter().map(|s| s.population as f64).sum::<f64>() / n,
+        avg_energy: second_half.iter().map(|s| s.avg_energy).sum::<f64>() / n,
+        survived: true,
+    }
+}
+
 fn main() {
-    eprintln!("D0 Virtual Machine — Operational Closure Experiment");
-    eprintln!("====================================================\n");
+    eprintln!("D0 Virtual Machine — Operational Closure Experiment v2");
+    eprintln!("======================================================");
+    eprintln!("  E_MAX = 1000, 5 seeds, genome dumps every 10k ticks\n");
 
-    let seed = 42u64; // Fixed seed for reproducibility
+    let seeds: Vec<u64> = vec![42, 137, 256, 999, 2026];
+    let num_seeds = seeds.len();
 
-    // Experiment 1: Experimental group (freshness_decay = true)
-    let exp_config = Config::experimental();
-    let exp_snapshots = run_experiment("experimental_group", exp_config, seed);
+    // Collect steady-state stats across all seeds
+    let mut exp_stats: Vec<SteadyState> = Vec::new();
+    let mut ctrl_stats: Vec<SteadyState> = Vec::new();
 
-    // Experiment 2: Control group (freshness_decay = false)
-    let ctrl_config = Config::control();
-    let ctrl_snapshots = run_experiment("control_group", ctrl_config, seed);
+    // Keep the first seed's full snapshots for detailed reporting
+    let mut first_exp_snapshots: Option<Vec<Snapshot>> = None;
+    let mut first_ctrl_snapshots: Option<Vec<Snapshot>> = None;
 
-    // Generate analysis report
-    let report = analyze_and_report(&exp_snapshots, &ctrl_snapshots);
+    for (i, &seed) in seeds.iter().enumerate() {
+        eprintln!("\n>>> Seed {}/{}: {}", i + 1, num_seeds, seed);
+
+        // Experimental group
+        let exp_config = Config::experimental();
+        let exp_name = format!("experimental_seed_{}", seed);
+        let exp_snap = run_experiment(&exp_name, exp_config, seed);
+        let exp_ss = compute_steady_state(&exp_snap);
+        exp_stats.push(exp_ss);
+        if first_exp_snapshots.is_none() {
+            first_exp_snapshots = Some(exp_snap);
+        }
+
+        // Control group
+        let ctrl_config = Config::control();
+        let ctrl_name = format!("control_seed_{}", seed);
+        let ctrl_snap = run_experiment(&ctrl_name, ctrl_config, seed);
+        let ctrl_ss = compute_steady_state(&ctrl_snap);
+        ctrl_stats.push(ctrl_ss);
+        if first_ctrl_snapshots.is_none() {
+            first_ctrl_snapshots = Some(ctrl_snap);
+        }
+    }
+
+    // Generate single-seed detailed report (seed 42)
+    let single_report = analyze_and_report(
+        first_exp_snapshots.as_ref().unwrap(),
+        first_ctrl_snapshots.as_ref().unwrap(),
+    );
+
+    // Generate multi-seed summary
+    let mut report = String::new();
+    report.push_str("# D0 Virtual Machine — Multi-Seed Experiment Results (v2)\n\n");
+    report.push_str("## Changes from v1\n\n");
+    report.push_str("- **E_MAX = 1000**: Energy cap prevents unbounded accumulation\n");
+    report.push_str("- **5 random seeds**: Statistical validation across seeds 42, 137, 256, 999, 2026\n");
+    report.push_str("- **Genome dumps**: Longest-lived organism's code saved every 10k ticks\n\n");
+
+    report.push_str("## Multi-Seed Summary (steady-state averages, tick 50k-100k)\n\n");
+    report.push_str("### Per-Seed Results\n\n");
+    report.push_str("| Seed | Group | Survived | EAT% | REFRESH% | DIVIDE% | Low-E EAT% | Avg Pop | Avg Energy |\n");
+    report.push_str("|------|-------|----------|------|----------|---------|-----------|---------|------------|\n");
+    for (i, &seed) in seeds.iter().enumerate() {
+        let e = &exp_stats[i];
+        let c = &ctrl_stats[i];
+        report.push_str(&format!(
+            "| {} | Exp | {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.0} |\n",
+            seed, if e.survived { "YES" } else { "NO" },
+            e.eat_ratio * 100.0, e.refresh_ratio * 100.0, e.divide_ratio * 100.0,
+            e.low_energy_eat_rate * 100.0, e.avg_population, e.avg_energy,
+        ));
+        report.push_str(&format!(
+            "| {} | Ctrl | {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.0} |\n",
+            seed, if c.survived { "YES" } else { "NO" },
+            c.eat_ratio * 100.0, c.refresh_ratio * 100.0, c.divide_ratio * 100.0,
+            c.low_energy_eat_rate * 100.0, c.avg_population, c.avg_energy,
+        ));
+    }
+
+    // Cross-seed averages
+    let avg = |stats: &[SteadyState], f: fn(&SteadyState) -> f64| -> f64 {
+        let vals: Vec<f64> = stats.iter().filter(|s| s.survived).map(|s| f(s)).collect();
+        if vals.is_empty() { 0.0 } else { vals.iter().sum::<f64>() / vals.len() as f64 }
+    };
+    let std_dev = |stats: &[SteadyState], f: fn(&SteadyState) -> f64| -> f64 {
+        let vals: Vec<f64> = stats.iter().filter(|s| s.survived).map(|s| f(s)).collect();
+        if vals.len() < 2 { return 0.0; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        var.sqrt()
+    };
+
+    let exp_survived = exp_stats.iter().filter(|s| s.survived).count();
+    let ctrl_survived = ctrl_stats.iter().filter(|s| s.survived).count();
+
+    report.push_str("\n### Cross-Seed Averages (mean +/- std dev)\n\n");
+    report.push_str(&format!("Survived: Exp {}/{}, Ctrl {}/{}\n\n", exp_survived, num_seeds, ctrl_survived, num_seeds));
+    report.push_str("| Metric | Experimental | Control | Delta |\n");
+    report.push_str("|--------|-------------|---------|-------|\n");
+
+    let metrics: Vec<(&str, fn(&SteadyState) -> f64)> = vec![
+        ("EAT ratio", |s: &SteadyState| s.eat_ratio),
+        ("REFRESH ratio", |s: &SteadyState| s.refresh_ratio),
+        ("DIVIDE ratio", |s: &SteadyState| s.divide_ratio),
+        ("Low-E EAT rate", |s: &SteadyState| s.low_energy_eat_rate),
+        ("Avg population", |s: &SteadyState| s.avg_population),
+        ("Avg energy", |s: &SteadyState| s.avg_energy),
+    ];
+
+    for (name, f) in &metrics {
+        let e_avg = avg(&exp_stats, *f);
+        let e_sd = std_dev(&exp_stats, *f);
+        let c_avg = avg(&ctrl_stats, *f);
+        let c_sd = std_dev(&ctrl_stats, *f);
+        let is_pct = name.contains("ratio") || name.contains("rate");
+        if is_pct {
+            report.push_str(&format!(
+                "| {} | {:.1}% +/- {:.1}% | {:.1}% +/- {:.1}% | {:.1}% |\n",
+                name, e_avg * 100.0, e_sd * 100.0, c_avg * 100.0, c_sd * 100.0, (e_avg - c_avg) * 100.0,
+            ));
+        } else {
+            report.push_str(&format!(
+                "| {} | {:.1} +/- {:.1} | {:.1} +/- {:.1} | {:.1} |\n",
+                name, e_avg, e_sd, c_avg, c_sd, e_avg - c_avg,
+            ));
+        }
+    }
+
+    report.push_str("\n---\n\n");
+    report.push_str("## Detailed Results (Seed 42)\n\n");
+    report.push_str(&single_report);
 
     // Write RESULTS.md
     fs::write("D:/project/d0-vm/RESULTS.md", &report).expect("Failed to write RESULTS.md");
     eprintln!("\nResults written to RESULTS.md");
 
-    // Print summary to stdout
     println!("{}", report);
 }
