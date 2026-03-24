@@ -1,6 +1,6 @@
 //! Experiment runner and report generation.
 
-use crate::organism::{seed_a, seed_b, Config};
+use crate::organism::{seed_a, seed_b, seed_c, Config};
 use crate::world::{Snapshot, World};
 
 /// Steady-state averages from the second half of a simulation run.
@@ -66,6 +66,37 @@ pub fn run_experiment(name: &str, config: Config, seed: u64) -> Vec<Snapshot> {
         let genome_path = format!("D:/project/d0-vm/{}_genomes.txt", safe_name);
         world.export_genomes(&genome_path);
     }
+
+    world.snapshots
+}
+
+/// Run a stigmergy experiment with seed A + B + C organisms.
+pub fn run_stigmergy_experiment(name: &str, config: Config, seed: u64) -> Vec<Snapshot> {
+    eprintln!("\n========================================");
+    eprintln!("Running stigmergy experiment: {}", name);
+    eprintln!("  medium_size = {}", config.medium_size);
+    eprintln!("  freshness_decay = {}", config.freshness_decay);
+    eprintln!("  total_ticks = {}", config.total_ticks);
+    eprintln!("========================================");
+
+    let mut world = World::new(config.clone(), seed);
+
+    for _ in 0..5 { world.add_organism(seed_a(&config)); }
+    for _ in 0..5 { world.add_organism(seed_b(&config)); }
+    for _ in 0..10 { world.add_organism(seed_c(&config)); }
+
+    world.run();
+
+    let safe_name = name.replace(' ', "_");
+    world.export_csv(&format!("D:/project/d0-vm/{}.csv", safe_name));
+    if !world.genome_dumps.is_empty() {
+        world.export_genomes(&format!("D:/project/d0-vm/{}_genomes.txt", safe_name));
+    }
+
+    // Export medium state at end
+    let medium_nonzero: usize = world.medium.iter().filter(|&&v| v > 0).count();
+    let medium_sum: u64 = world.medium.iter().map(|&v| v as u64).sum();
+    eprintln!("  Medium: {} non-zero channels, sum={}", medium_nonzero, medium_sum);
 
     world.snapshots
 }

@@ -1,4 +1,4 @@
-=== [oldest] Tick 10000 | Age 10000 | Energy 67 | Freshness 250 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 10000 | Age 10000 | Energy 104 | Freshness 253 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -8,7 +8,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 10000 | Age 48 | Energy 35 | Freshness 251 | Gen 18 | Code len 8 ===
+=== [most_evolved] Tick 10000 | Age 89 | Energy 88 | Freshness 166 | Gen 43 | Code len 8 ===
+  [  0] EAT
+  [  1] EAT
+  [  2] SENSE_SELF r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] JMP -5
+  [  6] DIVIDE
+  [  7] JMP -7
+
+=== [oldest] Tick 20000 | Age 20000 | Energy 99 | Freshness 250 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -18,7 +28,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [oldest] Tick 20000 | Age 20000 | Energy 70 | Freshness 253 | Gen 0 | Code len 8 ===
+=== [most_evolved] Tick 20000 | Age 97 | Energy 103 | Freshness 158 | Gen 110 | Code len 8 ===
+  [  0] EAT
+  [  1] EAT
+  [  2] CMP r4 r1
+  [  3] CMP r1 r5
+  [  4] JNZ 2
+  [  5] EAT
+  [  6] DIVIDE
+  [  7] DIVIDE
+
+=== [oldest] Tick 30000 | Age 30000 | Energy 100 | Freshness 251 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -28,17 +48,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 20000 | Age 17346 | Energy 994 | Freshness 251 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 30000 | Age 91 | Energy 65 | Freshness 164 | Gen 171 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
+  [  1] EAT
+  [  2] CMP r4 r1
   [  3] CMP r1 r5
   [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
-  [  7] JMP -7
+  [  7] DIVIDE
 
-=== [oldest] Tick 30000 | Age 30000 | Energy 75 | Freshness 250 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 40000 | Age 40000 | Energy 100 | Freshness 251 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -48,17 +68,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 30000 | Age 27346 | Energy 996 | Freshness 253 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 40000 | Age 91 | Energy 38 | Freshness 164 | Gen 234 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
+  [  1] EAT
+  [  2] CMP r4 r1
   [  3] CMP r1 r5
   [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
-  [  7] JMP -7
+  [  7] DIVIDE
 
-=== [oldest] Tick 40000 | Age 40000 | Energy 70 | Freshness 253 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 50000 | Age 50000 | Energy 71 | Freshness 254 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -68,17 +88,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 40000 | Age 37346 | Energy 998 | Freshness 255 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 50000 | Age 185 | Energy 90 | Freshness 70 | Gen 301 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
+  [  1] EAT
+  [  2] CMP r4 r1
   [  3] CMP r1 r5
   [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
-  [  7] JMP -7
+  [  7] EAT
 
-=== [oldest] Tick 50000 | Age 50000 | Energy 75 | Freshness 250 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 60000 | Age 60000 | Energy 49 | Freshness 253 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -88,17 +108,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 50000 | Age 47346 | Energy 994 | Freshness 251 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 60000 | Age 77 | Energy 12 | Freshness 178 | Gen 377 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
-  [  3] CMP r1 r5
+  [  1] EAT
+  [  2] CMP r4 r1
+  [  3] EAT
   [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
-  [  7] JMP -7
+  [  7] EAT
 
-=== [oldest] Tick 60000 | Age 60000 | Energy 70 | Freshness 253 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 70000 | Age 70000 | Energy 100 | Freshness 251 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -108,17 +128,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 60000 | Age 57346 | Energy 996 | Freshness 253 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 70000 | Age 90 | Energy 15 | Freshness 248 | Gen 398 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
-  [  3] CMP r1 r5
+  [  1] EAT
+  [  2] REFRESH
+  [  3] EAT
   [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
-  [  7] JMP -7
+  [  7] EAT
 
-=== [oldest] Tick 70000 | Age 70000 | Energy 104 | Freshness 253 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 80000 | Age 80000 | Energy 105 | Freshness 254 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -128,17 +148,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 70000 | Age 67346 | Energy 998 | Freshness 255 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 80000 | Age 90 | Energy 22 | Freshness 248 | Gen 398 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
-  [  3] CMP r1 r5
+  [  1] EAT
+  [  2] REFRESH
+  [  3] EAT
   [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
-  [  7] JMP -7
+  [  7] EAT
 
-=== [oldest] Tick 80000 | Age 80000 | Energy 77 | Freshness 250 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 90000 | Age 90000 | Energy 100 | Freshness 251 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -148,17 +168,17 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 80000 | Age 77346 | Energy 994 | Freshness 251 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 90000 | Age 4098 | Energy 165 | Freshness 248 | Gen 398 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
-  [  3] CMP r1 r5
+  [  1] EAT
+  [  2] REFRESH
+  [  3] EAT
   [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
-  [  7] JMP -7
+  [  7] EAT
 
-=== [oldest] Tick 90000 | Age 90000 | Energy 77 | Freshness 250 | Gen 0 | Code len 8 ===
+=== [oldest] Tick 100000 | Age 100000 | Energy 105 | Freshness 254 | Gen 0 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
@@ -168,33 +188,13 @@
   [  6] DIVIDE
   [  7] JMP -7
 
-=== [most_evolved] Tick 90000 | Age 87346 | Energy 996 | Freshness 253 | Gen 13 | Code len 8 ===
+=== [most_evolved] Tick 100000 | Age 98 | Energy 21 | Freshness 248 | Gen 398 | Code len 8 ===
   [  0] EAT
-  [  1] REFRESH
-  [  2] STORE r7 d1
-  [  3] CMP r1 r5
+  [  1] EAT
+  [  2] REFRESH
+  [  3] EAT
   [  4] JNZ 2
-  [  5] JMP -5
-  [  6] DIVIDE
-  [  7] JMP -7
-
-=== [oldest] Tick 100000 | Age 100000 | Energy 64 | Freshness 253 | Gen 0 | Code len 8 ===
-  [  0] EAT
-  [  1] REFRESH
-  [  2] SENSE_SELF r1
-  [  3] CMP r1 r5
-  [  4] JNZ 2
-  [  5] JMP -5
-  [  6] DIVIDE
-  [  7] JMP -7
-
-=== [most_evolved] Tick 100000 | Age 193 | Energy 24 | Freshness 253 | Gen 18 | Code len 8 ===
-  [  0] EAT
-  [  1] REFRESH
-  [  2] SENSE_SELF r1
-  [  3] CMP r1 r5
-  [  4] JNZ 2
-  [  5] JMP -5
+  [  5] EAT
   [  6] DIVIDE
   [  7] EAT
 

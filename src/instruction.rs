@@ -21,11 +21,13 @@ pub enum Instruction {
     Eat,            // 0x09: Consume food from pool
     Refresh,        // 0x0A: Reset freshness (whole organism, simplified)
     Divide,         // 0x0B: Self-replicate with mutation
+    Emit(u8),       // 0x0C: Write R0 to medium[operand] (stigmergy signal)
+    Sample(u8),     // 0x0D: Read medium[operand] into R0 (sense environment)
 }
 
 impl Instruction {
     /// Total number of instruction variants (for random generation/mutation).
-    pub const VARIANT_COUNT: usize = 12;
+    pub const VARIANT_COUNT: usize = 14;
 
     /// Generate a random instruction.
     pub fn random(rng: &mut impl Rng) -> Self {
@@ -48,6 +50,8 @@ impl Instruction {
             9 => Instruction::Eat,
             10 => Instruction::Refresh,
             11 => Instruction::Divide,
+            12 => Instruction::Emit(rng.gen_range(0..=255)),
+            13 => Instruction::Sample(rng.gen_range(0..=255)),
             _ => Instruction::Nop,
         }
     }
@@ -78,6 +82,8 @@ impl fmt::Display for Instruction {
             Instruction::Eat => write!(f, "EAT"),
             Instruction::Refresh => write!(f, "REFRESH"),
             Instruction::Divide => write!(f, "DIVIDE"),
+            Instruction::Emit(ch) => write!(f, "EMIT {}", ch),
+            Instruction::Sample(ch) => write!(f, "SAMPLE {}", ch),
         }
     }
 }

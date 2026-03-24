@@ -13,7 +13,7 @@ mod experiment;
 
 use std::fs;
 use organism::Config;
-use experiment::{run_experiment, analyze_and_report, compute_steady_state, SteadyState};
+use experiment::{run_experiment, run_stigmergy_experiment, analyze_and_report, compute_steady_state, SteadyState};
 
 fn main() {
     eprintln!("D0 Virtual Machine — Operational Closure Experiment v2");
@@ -152,6 +152,43 @@ fn main() {
             ss.eat_ratio * 100.0, ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
         ));
     }
+
+    // Stigmergy experiment
+    report.push_str("\n---\n\n");
+    report.push_str("## Stigmergy Experiment: Indirect Communication via Shared Medium\n\n");
+    report.push_str("Testing whether organisms evolve to use EMIT/SAMPLE for indirect coordination.\n");
+    report.push_str("Setup: 5 Seed A + 5 Seed B + 10 Seed C (stigmergy-capable), medium_size=256.\n\n");
+
+    // With stigmergy vs without (medium_size=0)
+    let stig_config = Config::stigmergy();
+    let stig_snaps = run_stigmergy_experiment("stigmergy_with_medium", stig_config, 42);
+    let stig_ss = compute_steady_state(&stig_snaps);
+
+    let mut no_stig_config = Config::stigmergy();
+    no_stig_config.medium_size = 0; // Disable medium
+    let no_stig_snaps = run_stigmergy_experiment("stigmergy_no_medium", no_stig_config, 42);
+    let no_stig_ss = compute_steady_state(&no_stig_snaps);
+
+    report.push_str("| Metric | With Medium | No Medium | Delta |\n");
+    report.push_str("|--------|------------|-----------|-------|\n");
+    report.push_str(&format!("| Survived | {} | {} | — |\n",
+        if stig_ss.survived { "YES" } else { "NO" },
+        if no_stig_ss.survived { "YES" } else { "NO" }));
+    report.push_str(&format!("| Avg population | {:.1} | {:.1} | {:.1} |\n",
+        stig_ss.avg_population, no_stig_ss.avg_population,
+        stig_ss.avg_population - no_stig_ss.avg_population));
+    report.push_str(&format!("| Avg energy | {:.0} | {:.0} | {:.0} |\n",
+        stig_ss.avg_energy, no_stig_ss.avg_energy,
+        stig_ss.avg_energy - no_stig_ss.avg_energy));
+    report.push_str(&format!("| EAT% | {:.1} | {:.1} | {:.1} |\n",
+        stig_ss.eat_ratio * 100.0, no_stig_ss.eat_ratio * 100.0,
+        (stig_ss.eat_ratio - no_stig_ss.eat_ratio) * 100.0));
+    report.push_str(&format!("| REFRESH% | {:.1} | {:.1} | {:.1} |\n",
+        stig_ss.refresh_ratio * 100.0, no_stig_ss.refresh_ratio * 100.0,
+        (stig_ss.refresh_ratio - no_stig_ss.refresh_ratio) * 100.0));
+    report.push_str(&format!("| DIVIDE% | {:.1} | {:.1} | {:.1} |\n",
+        stig_ss.divide_ratio * 100.0, no_stig_ss.divide_ratio * 100.0,
+        (stig_ss.divide_ratio - no_stig_ss.divide_ratio) * 100.0));
 
     report.push_str("\n---\n\n");
     report.push_str("## Detailed Results (Seed 42)\n\n");

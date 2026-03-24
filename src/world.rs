@@ -65,6 +65,7 @@ pub struct GenomeDump {
 pub struct World {
     pub organisms: Vec<Organism>,
     pub food_pool: i32,
+    pub medium: Vec<u8>,  // Stigmergy medium — shared signal environment
     pub tick: u64,
     pub config: Config,
     pub rng: StdRng,
@@ -75,6 +76,8 @@ pub struct World {
     interval_eat: u64,
     interval_refresh: u64,
     interval_divide: u64,
+    interval_emit: u64,
+    interval_sample: u64,
     interval_instructions: u64,
     low_energy_eats: u64,
     low_energy_total_instructions: u64,
@@ -84,9 +87,11 @@ pub struct World {
 
 impl World {
     pub fn new(config: Config, seed: u64) -> Self {
+        let medium_size = config.medium_size;
         World {
             organisms: Vec::new(),
             food_pool: 500,
+            medium: vec![0u8; medium_size],
             tick: 0,
             config,
             rng: StdRng::seed_from_u64(seed),
@@ -95,6 +100,8 @@ impl World {
             interval_eat: 0,
             interval_refresh: 0,
             interval_divide: 0,
+            interval_emit: 0,
+            interval_sample: 0,
             interval_instructions: 0,
             low_energy_eats: 0,
             low_energy_total_instructions: 0,
@@ -151,6 +158,8 @@ impl World {
         self.interval_eat = 0;
         self.interval_refresh = 0;
         self.interval_divide = 0;
+        self.interval_emit = 0;
+        self.interval_sample = 0;
         self.interval_instructions = 0;
         self.low_energy_eats = 0;
         self.low_energy_total_instructions = 0;
@@ -319,6 +328,30 @@ impl World {
                 }
                 org.ip += 1;
             }
+
+            Instruction::Emit(ch) => {
+                org.emit_count += 1;
+                self.interval_emit += 1;
+                org.energy -= self.config.emit_cost;
+                if !self.medium.is_empty() {
+                    let idx = (ch as usize) % self.medium.len();
+                    // Write R0 low byte to medium (saturating add to allow accumulation)
+                    let val = (org.registers[0] & 0xFF) as u8;
+                    self.medium[idx] = self.medium[idx].saturating_add(val);
+                }
+                org.ip += 1;
+            }
+
+            Instruction::Sample(ch) => {
+                org.sample_count += 1;
+                self.interval_sample += 1;
+                org.energy -= self.config.sample_cost;
+                if !self.medium.is_empty() {
+                    let idx = (ch as usize) % self.medium.len();
+                    org.registers[0] = self.medium[idx] as i32;
+                }
+                org.ip += 1;
+            }
         }
 
         new_organism
@@ -327,6 +360,11 @@ impl World {
     /// Run one tick of the simulation.
     pub fn tick(&mut self) {
         self.food_pool += self.config.food_per_tick;
+
+        // Medium signal decay: all values -= 1 (saturating)
+        for val in self.medium.iter_mut() {
+            *val = val.saturating_sub(1);
+        }
 
         let n = self.organisms.len();
         let mut new_organisms: Vec<Organism> = Vec::new();

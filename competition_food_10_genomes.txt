@@ -8,7 +8,7 @@
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -18,12 +18,12 @@
   [  1] REFRESH
   [  2] JMP -2
 
-=== [most_evolved] Tick 20000 | Age 18414 | Energy 993 | Freshness 254 | Gen 11 | Code len 8 ===
+=== [most_evolved] Tick 20000 | Age 18414 | Energy 994 | Freshness 251 | Gen 11 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -38,7 +38,7 @@
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -53,7 +53,7 @@
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -63,12 +63,12 @@
   [  1] REFRESH
   [  2] JMP -2
 
-=== [most_evolved] Tick 50000 | Age 48414 | Energy 993 | Freshness 254 | Gen 11 | Code len 8 ===
+=== [most_evolved] Tick 50000 | Age 48414 | Energy 994 | Freshness 251 | Gen 11 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -83,7 +83,7 @@
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -98,7 +98,7 @@
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -108,12 +108,12 @@
   [  1] REFRESH
   [  2] JMP -2
 
-=== [most_evolved] Tick 80000 | Age 78414 | Energy 993 | Freshness 254 | Gen 11 | Code len 8 ===
+=== [most_evolved] Tick 80000 | Age 78414 | Energy 994 | Freshness 251 | Gen 11 | Code len 8 ===
   [  0] EAT
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -128,7 +128,7 @@
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7
@@ -143,7 +143,7 @@
   [  1] REFRESH
   [  2] SENSE_SELF r1
   [  3] CMP r1 r5
-  [  4] REFRESH
+  [  4] CMP r2 r6
   [  5] JMP -5
   [  6] DIVIDE
   [  7] JMP -7

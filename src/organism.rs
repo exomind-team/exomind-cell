@@ -22,6 +22,8 @@ pub struct Organism {
     pub eat_count: u64,
     pub refresh_count: u64,
     pub divide_count: u64,
+    pub emit_count: u64,
+    pub sample_count: u64,
     pub total_instructions: u64,
 }
 
@@ -40,6 +42,8 @@ impl Organism {
             eat_count: 0,
             refresh_count: 0,
             divide_count: 0,
+            emit_count: 0,
+            sample_count: 0,
             total_instructions: 0,
         }
     }
@@ -59,6 +63,9 @@ pub struct Config {
     pub instruction_cost: i32,
     pub initial_energy: i32,
     pub e_max: i32,             // Energy cap
+    pub medium_size: usize,     // Stigmergy medium length (0 = disabled)
+    pub emit_cost: i32,         // Energy cost for EMIT
+    pub sample_cost: i32,       // Energy cost for SAMPLE
     pub total_ticks: u64,
     pub snapshot_interval: u64,
     pub genome_dump_interval: u64,
@@ -79,6 +86,9 @@ impl Config {
             instruction_cost: 1,
             initial_energy: 100,
             e_max: 1000,
+            medium_size: 256,
+            emit_cost: 1,
+            sample_cost: 1,
             total_ticks: 100_000,
             snapshot_interval: 1000,
             genome_dump_interval: 10_000,
@@ -127,6 +137,37 @@ pub fn seed_b(config: &Config) -> Organism {
     let mut org = Organism::new(code, config.initial_energy, config.freshness_max);
     org.registers[5] = 80; // divide energy threshold
     org
+}
+
+/// Seed C: Self-sustaining + stigmergy signaller.
+///
+/// Strategy: EAT, REFRESH, then EMIT own energy level to medium channel 0
+/// and SAMPLE channel 1 to see if others are signalling. If signal detected
+/// (R0 > 0 after SAMPLE), attempt DIVIDE.
+pub fn seed_c(config: &Config) -> Organism {
+    let code = vec![
+        Instruction::Eat,           // 0: eat
+        Instruction::Refresh,       // 1: refresh
+        Instruction::SenseSelf(1),  // 2: r1 = energy
+        Instruction::Emit(0),      // 3: emit R0 (=energy from last sense) to channel 0
+        Instruction::Sample(1),    // 4: R0 = medium[1] (read others' signals)
+        Instruction::Jnz(2),       // 5: if signal detected, skip to DIVIDE
+        Instruction::Jmp(-6),       // 6: loop back to start
+        Instruction::Divide,        // 7: divide (triggered by signal)
+        Instruction::Jmp(-8),       // 8: loop back to start
+    ];
+    let mut org = Organism::new(code, config.initial_energy, config.freshness_max);
+    org.registers[0] = 50; // initial emit value
+    org
+}
+
+/// Config for stigmergy experiment.
+impl Config {
+    pub fn stigmergy() -> Self {
+        let mut c = Self::experimental();
+        c.medium_size = 256;
+        c
+    }
 }
 
 #[cfg(test)]
