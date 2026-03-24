@@ -164,12 +164,20 @@ struct Config {
 
 impl Config {
     /// Default experimental configuration.
+    ///
+    /// Energy budget analysis:
+    /// - Seed A: 3 instructions/loop → 3 energy cost + 1 refresh_cost = 4 per loop
+    ///   Each loop includes 1 EAT → gains eat_energy. Net = eat_energy - 4 per loop.
+    /// - With eat_energy=10, net gain = +6 per 3-tick loop → sustainable.
+    /// - 20 initial organisms, each eating every ~3 ticks → ~7 EATs/tick
+    ///   → 70 food consumed/tick. food_per_tick must cover this or food pool drains.
+    /// - food_per_tick=50 + food_pool recycling from deaths should sustain ~50 organisms.
     fn experimental() -> Self {
         Config {
             max_organisms: 100,
-            food_per_tick: 5,
+            food_per_tick: 50,       // Enough to sustain ~50 organisms eating regularly
             freshness_max: 255,
-            freshness_decay: true,  // EXPERIMENTAL: freshness decays
+            freshness_decay: true,   // EXPERIMENTAL: freshness decays
             mutation_rate: 0.001,
             eat_energy: 10,
             refresh_cost: 1,
@@ -278,7 +286,7 @@ impl World {
     fn new(config: Config, seed: u64) -> Self {
         World {
             organisms: Vec::new(),
-            food_pool: 100, // Initial food pool
+            food_pool: 500, // Initial food pool — enough for first ~50 EATs
             tick: 0,
             config,
             rng: StdRng::seed_from_u64(seed),
@@ -635,76 +643,60 @@ impl World {
 // Seed Organisms
 // ============================================================================
 
-/// Seed A: Minimal self-sustaining loop.
+/// Seed A: Minimal self-sustaining loop (just alive).
+///
+/// Strategy: Always eat, always refresh. No conditions. Simplest viable program.
+/// This is the "baseline survival" seed — it doesn't try to be clever, just
+/// eats and refreshes every cycle. Costs 3 energy per full loop (3 instructions).
 ///
 /// ```text
 /// loop:
-///   SenseSelf r0    // read energy into r0
-///   Cmp r0, r1      // compare energy (r0) with r1 (initially 0, acts as threshold)
-///   Jnz skip_eat    // if energy > threshold (r0 > r1), skip eating
-///   Eat              // eat to get energy
-/// skip_eat:
-///   Refresh          // refresh freshness
-///   Jmp loop         // back to start
+///   Eat              // get energy from food pool
+///   Refresh          // reset freshness counter
+///   Jmp loop         // repeat forever
 /// ```
 fn seed_a(config: &Config) -> Organism {
     let code = vec![
-        Instruction::SenseSelf(0),  // 0: r0 = energy
-        Instruction::Cmp(0, 1),     // 1: compare r0 with r1 (r1=0 initially)
-        Instruction::Jnz(2),       // 2: if r0 > r1, skip to index 4 (ip+2)
-        Instruction::Eat,           // 3: eat
-        Instruction::Refresh,       // 4: refresh freshness
-        Instruction::Jmp(-5),       // 5: jump back to 0 (ip + (-5) = 0)
+        Instruction::Eat,       // 0: eat from food pool
+        Instruction::Refresh,   // 1: refresh freshness
+        Instruction::Jmp(-2),   // 2: jump back to 0 (ip=2, offset=-2 → ip=0)
     ];
     Organism::new(code, config.initial_energy, config.freshness_max)
 }
 
 /// Seed B: Self-sustaining + conditional division.
 ///
+/// Strategy: Always eat and refresh (survival first). Use SenseSelf to check
+/// energy level. If energy is high enough (> r5 threshold), also divide.
+/// CMP writes result to r0, JNZ checks r0.
+///
 /// ```text
 /// loop:
-///   SenseSelf r0    // read energy
-///   Cmp r0, r2      // compare energy with r2 (threshold for eating, initially 0)
-///   Jnz has_energy
-///   Eat
-///   Refresh
-///   Jmp loop
-/// has_energy:
-///   Cmp r0, r3      // compare energy with r3 (threshold for dividing)
-///   Jnz can_divide
-///   Eat
-///   Refresh
-///   Jmp loop
-/// can_divide:
-///   Divide
-///   Refresh
-///   Jmp loop
+///   Eat              // always eat first (survival priority)
+///   Refresh          // always refresh (survival priority)
+///   SenseSelf r1     // r1 = current energy
+///   Cmp r1, r5       // r0 = (r1 > r5) ? 1 : 0 — is energy above divide threshold?
+///   Jnz +2           // if yes, skip to Divide
+///   Jmp loop         // if no, go back to eating
+///   Divide           // reproduce!
+///   Jmp loop         // back to start
 /// ```
 fn seed_b(config: &Config) -> Organism {
     let code = vec![
-        Instruction::SenseSelf(0),  // 0: r0 = energy
-        Instruction::Inc(3),        // 1: r3++ (builds up divide threshold over time)
-        Instruction::Cmp(0, 2),     // 2: compare r0 with r2
-        Instruction::Jnz(3),       // 3: if r0 > r2, jump to 6 (has_energy)
-        Instruction::Eat,           // 4: eat
-        Instruction::Refresh,       // 5: refresh
-        Instruction::Jmp(-6),       // 6: would go to 0, but this is also has_energy target
-        // has_energy:
-        Instruction::Cmp(0, 3),     // 7: compare r0 with r3
-        Instruction::Jnz(3),       // 8: if r0 > r3, jump to 11 (can_divide)
-        Instruction::Eat,           // 9: eat
-        Instruction::Refresh,       // 10: refresh
-        Instruction::Jmp(-11),      // 11: jump back to 0
-        // can_divide:
-        Instruction::Divide,        // 12: divide!
-        Instruction::Refresh,       // 13: refresh after dividing
-        Instruction::Jmp(-14),      // 14: jump back to 0
+        Instruction::Eat,           // 0: eat first
+        Instruction::Refresh,       // 1: refresh
+        Instruction::SenseSelf(1),  // 2: r1 = energy
+        Instruction::Cmp(1, 5),     // 3: r0 = (r1 > r5)? r5 is divide threshold
+        Instruction::Jnz(2),       // 4: if r0≠0 (energy > threshold), jump to 6 (Divide)
+        Instruction::Jmp(-5),       // 5: otherwise loop back to 0
+        Instruction::Divide,        // 6: divide!
+        Instruction::Jmp(-7),       // 7: loop back to 0
     ];
 
     let mut org = Organism::new(code, config.initial_energy, config.freshness_max);
-    // Set initial register values for better thresholds
-    org.registers[2] = 3;   // eat threshold: eat when energy <= 3
-    org.registers[3] = 10;  // divide threshold: divide when energy > 10
+    // r5 = divide energy threshold. Only divide when energy > 80
+    // (need enough to survive the divide_cost and still have energy for both parent and child)
+    org.registers[5] = 80;
     org
 }
 
@@ -759,7 +751,7 @@ fn analyze_and_report(
     report.push_str("|-----------|-------|\n");
     report.push_str("| Population cap | 100 |\n");
     report.push_str("| Initial organisms | 10 Seed A + 10 Seed B |\n");
-    report.push_str("| Food per tick | 5 |\n");
+    report.push_str("| Food per tick | 50 |\n");
     report.push_str("| Mutation rate | 0.001 |\n");
     report.push_str("| Total ticks | 100,000 |\n");
     report.push_str("| Freshness max | 255 |\n");
