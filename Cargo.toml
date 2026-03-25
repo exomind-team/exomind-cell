@@ -6,5 +6,6 @@ description = "D0 Virtual Machine - Operational Closure experiment for Cognitive
 
 [dependencies]
 rand = "0.8"
+rayon = "1.10"
 ratatui = "0.29"
 crossterm = "0.28"

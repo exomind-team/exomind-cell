@@ -10,25 +10,28 @@ pub struct GroupComparison {
     pub ctrl_mean: f64,
     pub ctrl_sd: f64,
     pub mean_diff: f64,
-    pub ci_lower: f64,  // 95% CI lower bound of mean difference
-    pub ci_upper: f64,  // 95% CI upper bound
+    pub ci_lower: f64,
+    pub ci_upper: f64,
     pub u_statistic: f64,
-    pub p_value: f64,   // approximate two-tailed p-value
-    pub rank_biserial: f64, // effect size: r = 1 - 2U/(n1*n2)
+    pub p_value: f64,      // Mann-Whitney p
+    pub rank_biserial: f64,
     pub cohens_d: f64,
+    pub ks_d: f64,         // KS D statistic
+    pub ks_p: f64,         // KS p-value
 }
 
 impl GroupComparison {
     pub fn to_markdown_row(&self) -> String {
         format!(
-            "| {} | {:.3} +/- {:.3} | {:.3} +/- {:.3} | {:.3} | [{:.3}, {:.3}] | {:.1} | {:.4} | {:.3} | {:.3} |",
+            "| {} | {:.3} +/- {:.3} | {:.3} +/- {:.3} | {:.3} | [{:.3}, {:.3}] | {:.4} | {:.3} | {:.3} | {:.3} | {:.4} |",
             self.metric_name,
             self.exp_mean, self.exp_sd,
             self.ctrl_mean, self.ctrl_sd,
             self.mean_diff,
             self.ci_lower, self.ci_upper,
-            self.u_statistic, self.p_value,
+            self.p_value,
             self.rank_biserial, self.cohens_d,
+            self.ks_d, self.ks_p,
         )
     }
 }
@@ -116,6 +119,45 @@ fn normal_cdf_complement(z: f64) -> f64 {
     p * poly
 }
 
+/// Two-sample Kolmogorov-Smirnov test.
+/// Returns (D statistic, approximate p-value).
+pub fn ks_test(a: &[f64], b: &[f64]) -> (f64, f64) {
+    let mut a_sorted: Vec<f64> = a.to_vec();
+    let mut b_sorted: Vec<f64> = b.to_vec();
+    a_sorted.sort_by(|x, y| x.partial_cmp(y).unwrap());
+    b_sorted.sort_by(|x, y| x.partial_cmp(y).unwrap());
+
+    let na = a_sorted.len() as f64;
+    let nb = b_sorted.len() as f64;
+
+    // Merge and compute max CDF difference
+    let mut i = 0usize;
+    let mut j = 0usize;
+    let mut d_max: f64 = 0.0;
+
+    while i < a_sorted.len() || j < b_sorted.len() {
+        let cdf_a = i as f64 / na;
+        let cdf_b = j as f64 / nb;
+        d_max = d_max.max((cdf_a - cdf_b).abs());
+
+        let val_a = if i < a_sorted.len() { a_sorted[i] } else { f64::INFINITY };
+        let val_b = if j < b_sorted.len() { b_sorted[j] } else { f64::INFINITY };
+
+        if val_a <= val_b { i += 1; } else { j += 1; }
+    }
+    // Check final point
+    d_max = d_max.max((1.0 - j as f64 / nb).abs());
+
+    // Approximate p-value using asymptotic formula
+    let n_eff = (na * nb) / (na + nb);
+    let lambda = (n_eff.sqrt() + 0.12 + 0.11 / n_eff.sqrt()) * d_max;
+    // Kolmogorov distribution approximation
+    let p = 2.0 * (-2.0 * lambda * lambda).exp();
+    let p = p.max(0.0).min(1.0);
+
+    (d_max, p)
+}
+
 /// Cohen's d effect size.
 pub fn cohens_d(exp: &[f64], ctrl: &[f64]) -> f64 {
     let m1 = mean(exp);
@@ -139,6 +181,8 @@ pub fn compare_groups(name: &str, exp: &[f64], ctrl: &[f64]) -> GroupComparison 
     let n2 = ctrl.len() as f64;
     let rb = 1.0 - 2.0 * u_stat / (n1 * n2); // rank-biserial correlation
 
+    let (ks_d, ks_p) = ks_test(exp, ctrl);
+
     GroupComparison {
         metric_name: name.to_string(),
         exp_mean,
@@ -152,6 +196,8 @@ pub fn compare_groups(name: &str, exp: &[f64], ctrl: &[f64]) -> GroupComparison 
         p_value: p_val,
         rank_biserial: rb,
         cohens_d: cohens_d(exp, ctrl),
+        ks_d,
+        ks_p,
     }
 }
 

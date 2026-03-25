@@ -377,79 +377,92 @@ fn run_cell_experiments() {
 }
 
 // ============================================================================
-// 30-seed statistical analysis (Paper I requirement)
+// Large-scale statistical analysis with rayon parallelism
 // ============================================================================
 
-fn run_statistical_analysis() {
-    eprintln!("D0 VM — 30-Seed Statistical Analysis (Paper I)");
-    eprintln!("===============================================");
-    eprintln!("  Cell v3, CEM=50, R=5, 500k ticks, 30 seeds\n");
+/// Steady-state summary for one run (thread-safe, no references).
+struct RunResult {
+    seed: u64,
+    group: String, // "exp" or "ctrl"
+    refresh: f64,
+    eat: f64,
+    divide: f64,
+    pop: f64,
+    energy: f64,
+}
 
-    let seeds: Vec<u64> = (100..130).collect(); // 30 seeds: 100..129
+fn run_one_seed(seed: u64, freshness_decay: bool) -> RunResult {
+    use cell_vm::{CellConfig, CellWorld, cell_seed_a, cell_seed_b};
+
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.max_organisms = 1000;
+    config.food_per_tick = 500;
+    config.total_ticks = 2_000_000;
+    config.snapshot_interval = 10_000;
+    config.genome_dump_interval = 0; // no file I/O in parallel mode
+    config.freshness_decay = freshness_decay;
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..50 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..50 { world.add_organism(cell_seed_b(&config)); }
+    world.run();
+
+    let ss = cell_compute_steady_state(&world.snapshots);
+    RunResult {
+        seed,
+        group: if freshness_decay { "exp".into() } else { "ctrl".into() },
+        refresh: ss.refresh_ratio,
+        eat: ss.eat_ratio,
+        divide: ss.divide_ratio,
+        pop: ss.avg_population,
+        energy: ss.avg_energy,
+    }
+}
+
+fn run_statistical_analysis() {
+    use rayon::prelude::*;
+
+    eprintln!("D0 VM — Large-Scale Statistical Analysis (Paper I)");
+    eprintln!("===================================================");
+    eprintln!("  Cell v3, CEM=50, R=5, 2M ticks, 100 seeds, max_org=1000");
+    eprintln!("  food_per_tick=500, rayon parallel\n");
+
+    let seeds: Vec<u64> = (1000..1100).collect(); // 100 seeds
     let n = seeds.len();
 
-    let mut exp_refresh: Vec<f64> = Vec::new();
-    let mut exp_eat: Vec<f64> = Vec::new();
-    let mut exp_divide: Vec<f64> = Vec::new();
-    let mut exp_pop: Vec<f64> = Vec::new();
-    let mut exp_energy: Vec<f64> = Vec::new();
+    // Run all experimental seeds in parallel
+    eprintln!("Running {} experimental seeds in parallel...", n);
+    let exp_results: Vec<RunResult> = seeds.par_iter()
+        .map(|&seed| {
+            eprintln!("  [exp] seed {}", seed);
+            run_one_seed(seed, true)
+        })
+        .collect();
 
-    let mut ctrl_refresh: Vec<f64> = Vec::new();
-    let mut ctrl_eat: Vec<f64> = Vec::new();
-    let mut ctrl_divide: Vec<f64> = Vec::new();
-    let mut ctrl_pop: Vec<f64> = Vec::new();
-    let mut ctrl_energy: Vec<f64> = Vec::new();
+    eprintln!("\nRunning {} control seeds in parallel...", n);
+    let ctrl_results: Vec<RunResult> = seeds.par_iter()
+        .map(|&seed| {
+            eprintln!("  [ctrl] seed {}", seed);
+            run_one_seed(seed, false)
+        })
+        .collect();
 
-    // Time series: REFRESH% at each snapshot interval for seed 100 (first seed)
-    let mut ts_exp_refresh: Vec<(u64, f64)> = Vec::new();
-    let mut ts_ctrl_refresh: Vec<(u64, f64)> = Vec::new();
+    // Extract vectors
+    let exp_refresh: Vec<f64> = exp_results.iter().map(|r| r.refresh).collect();
+    let exp_eat: Vec<f64> = exp_results.iter().map(|r| r.eat).collect();
+    let exp_divide: Vec<f64> = exp_results.iter().map(|r| r.divide).collect();
+    let exp_pop: Vec<f64> = exp_results.iter().map(|r| r.pop).collect();
+    let exp_energy: Vec<f64> = exp_results.iter().map(|r| r.energy).collect();
 
-    for (i, &seed) in seeds.iter().enumerate() {
-        eprintln!(">>> Seed {}/{}: {}", i + 1, n, seed);
+    let ctrl_refresh: Vec<f64> = ctrl_results.iter().map(|r| r.refresh).collect();
+    let ctrl_eat: Vec<f64> = ctrl_results.iter().map(|r| r.eat).collect();
+    let ctrl_divide: Vec<f64> = ctrl_results.iter().map(|r| r.divide).collect();
+    let ctrl_pop: Vec<f64> = ctrl_results.iter().map(|r| r.pop).collect();
+    let ctrl_energy: Vec<f64> = ctrl_results.iter().map(|r| r.energy).collect();
 
-        // Experimental
-        let mut exp_config = CellConfig::experimental();
-        exp_config.cell_energy_max = 50;
-        let exp_snap = run_cell_experiment(&format!("stat_exp_{}", seed), exp_config, seed);
-        let exp_ss = cell_compute_steady_state(&exp_snap);
+    eprintln!("\nComputing statistics...");
 
-        exp_refresh.push(exp_ss.refresh_ratio);
-        exp_eat.push(exp_ss.eat_ratio);
-        exp_divide.push(exp_ss.divide_ratio);
-        exp_pop.push(exp_ss.avg_population);
-        exp_energy.push(exp_ss.avg_energy);
-
-        // Collect time series for first seed
-        if i == 0 {
-            for s in &exp_snap {
-                if s.population > 0 {
-                    ts_exp_refresh.push((s.tick, s.refresh_ratio));
-                }
-            }
-        }
-
-        // Control
-        let mut ctrl_config = CellConfig::control();
-        ctrl_config.cell_energy_max = 50;
-        let ctrl_snap = run_cell_experiment(&format!("stat_ctrl_{}", seed), ctrl_config, seed);
-        let ctrl_ss = cell_compute_steady_state(&ctrl_snap);
-
-        ctrl_refresh.push(ctrl_ss.refresh_ratio);
-        ctrl_eat.push(ctrl_ss.eat_ratio);
-        ctrl_divide.push(ctrl_ss.divide_ratio);
-        ctrl_pop.push(ctrl_ss.avg_population);
-        ctrl_energy.push(ctrl_ss.avg_energy);
-
-        if i == 0 {
-            for s in &ctrl_snap {
-                if s.population > 0 {
-                    ts_ctrl_refresh.push((s.tick, s.refresh_ratio));
-                }
-            }
-        }
-    }
-
-    // Statistical comparisons
     let comparisons = vec![
         stats::compare_groups("REFRESH ratio", &exp_refresh, &ctrl_refresh),
         stats::compare_groups("EAT ratio", &exp_eat, &ctrl_eat),
@@ -460,33 +473,37 @@ fn run_statistical_analysis() {
 
     // Generate report
     let mut report = String::new();
-    report.push_str("# D0 VM Statistical Analysis — 30-Seed Cell v3 Experiment\n\n");
+    report.push_str("# D0 VM Large-Scale Statistical Analysis\n\n");
     report.push_str("## Parameters\n\n");
     report.push_str("- VM: Cell v3 (per-cell freshness)\n");
     report.push_str("- CEM: 50, R: 5, freshness_max: 255\n");
-    report.push_str("- Ticks: 500,000 per run\n");
-    report.push_str("- Seeds: 100-129 (30 seeds)\n");
-    report.push_str("- Steady-state window: tick 250k-500k\n");
-    report.push_str("- Bootstrap: 10,000 resamples, seed 12345\n\n");
+    report.push_str(&format!("- Ticks: 2,000,000 per run\n"));
+    report.push_str(&format!("- Seeds: 1000-1099 ({} seeds)\n", n));
+    report.push_str("- max_organisms: 1000, food_per_tick: 500\n");
+    report.push_str("- Initial: 50 Seed A + 50 Seed B\n");
+    report.push_str("- Steady-state window: tick 1M-2M\n");
+    report.push_str("- Bootstrap: 10,000 resamples\n");
+    report.push_str("- Parallel: rayon (all available cores)\n\n");
 
-    // Per-seed table
-    report.push_str("## Per-Seed Results\n\n");
-    report.push_str("| Seed | Exp REFRESH% | Ctrl REFRESH% | Exp DIVIDE% | Ctrl DIVIDE% | Exp Pop | Ctrl Pop |\n");
-    report.push_str("|------|-------------|---------------|------------|-------------|---------|----------|\n");
-    for (i, &seed) in seeds.iter().enumerate() {
+    // Per-seed table (first 20 + last 5)
+    report.push_str("## Per-Seed Results (first 20 + last 5)\n\n");
+    report.push_str("| Seed | Exp REFRESH% | Ctrl REFRESH% | Exp EAT% | Ctrl EAT% | Exp Pop | Ctrl Pop |\n");
+    report.push_str("|------|-------------|---------------|---------|----------|---------|----------|\n");
+    let show_indices: Vec<usize> = (0..20).chain(n-5..n).collect();
+    for &i in &show_indices {
         report.push_str(&format!(
             "| {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
-            seed,
+            seeds[i],
             exp_refresh[i] * 100.0, ctrl_refresh[i] * 100.0,
-            exp_divide[i] * 100.0, ctrl_divide[i] * 100.0,
+            exp_eat[i] * 100.0, ctrl_eat[i] * 100.0,
             exp_pop[i], ctrl_pop[i],
         ));
     }
 
-    // Statistical tests
+    // Statistical tests table
     report.push_str("\n## Statistical Tests\n\n");
-    report.push_str("| Metric | Exp (mean+/-sd) | Ctrl (mean+/-sd) | Diff | 95% CI | U | p-value | r_rb | Cohen's d |\n");
-    report.push_str("|--------|----------------|-----------------|------|--------|---|---------|------|----------|\n");
+    report.push_str("| Metric | Exp (mean+/-sd) | Ctrl (mean+/-sd) | Diff | 95% CI | MW p | r_rb | d | KS D | KS p |\n");
+    report.push_str("|--------|----------------|-----------------|------|--------|------|------|---|------|------|\n");
     for c in &comparisons {
         report.push_str(&c.to_markdown_row());
         report.push_str("\n");
@@ -494,66 +511,38 @@ fn run_statistical_analysis() {
 
     // Interpretation
     report.push_str("\n## Interpretation\n\n");
-    let refresh_comp = &comparisons[0];
-    if refresh_comp.p_value < 0.05 {
+    for c in &comparisons {
+        let sig = if c.p_value < 0.001 { "***" }
+            else if c.p_value < 0.01 { "**" }
+            else if c.p_value < 0.05 { "*" }
+            else { "n.s." };
+        let d_label = if c.cohens_d.abs() >= 0.8 { "large" }
+            else if c.cohens_d.abs() >= 0.5 { "medium" }
+            else if c.cohens_d.abs() >= 0.2 { "small" }
+            else { "negligible" };
         report.push_str(&format!(
-            "REFRESH ratio: **statistically significant** (p={:.4}). ",
-            refresh_comp.p_value
+            "- **{}**: MW p={:.4} {}, d={:.3} ({}), KS D={:.3} p={:.4}\n",
+            c.metric_name, c.p_value, sig, c.cohens_d, d_label, c.ks_d, c.ks_p
         ));
-        report.push_str(&format!(
-            "95% CI of difference: [{:.4}, {:.4}]. ",
-            refresh_comp.ci_lower, refresh_comp.ci_upper
-        ));
-        if refresh_comp.ci_lower > 0.0 {
-            report.push_str("CI does not contain 0 — the effect is robust.\n\n");
-        } else {
-            report.push_str("CI contains 0 — despite significant p, effect direction uncertain.\n\n");
-        }
-    } else {
-        report.push_str(&format!(
-            "REFRESH ratio: **not statistically significant** (p={:.4}). ",
-            refresh_comp.p_value
-        ));
-        report.push_str("The difference between experimental and control groups may be due to chance.\n\n");
     }
 
-    let d = refresh_comp.cohens_d.abs();
-    report.push_str(&format!("Effect size (Cohen's d): {:.3} — ", d));
-    if d < 0.2 { report.push_str("negligible\n"); }
-    else if d < 0.5 { report.push_str("small\n"); }
-    else if d < 0.8 { report.push_str("medium\n"); }
-    else { report.push_str("large\n"); }
+    report.push_str("\n---\n\n*Generated by D0 VM large-scale statistical analysis (rayon parallel)*\n");
 
-    report.push_str("\n---\n\n*Generated by D0 VM statistical analysis module*\n");
+    // Ensure output directory exists
+    let _ = fs::create_dir_all("D:/project/d0-vm/data/large_scale");
 
-    // Write report
-    fs::write("D:/project/d0-vm/data/statistical_analysis.md", &report)
+    fs::write("D:/project/d0-vm/data/large_scale/statistical_analysis.md", &report)
         .expect("Failed to write statistical_analysis.md");
-    eprintln!("\nStatistical analysis written to data/statistical_analysis.md");
 
-    // Write time series CSV
-    let mut ts_file = fs::File::create("D:/project/d0-vm/data/time_series_refresh.csv")
-        .expect("Failed to create time series CSV");
-    writeln!(ts_file, "tick,exp_refresh_ratio,ctrl_refresh_ratio").unwrap();
-    let max_len = ts_exp_refresh.len().min(ts_ctrl_refresh.len());
-    for i in 0..max_len {
-        writeln!(ts_file, "{},{:.6},{:.6}",
-            ts_exp_refresh[i].0, ts_exp_refresh[i].1, ts_ctrl_refresh[i].1
-        ).unwrap();
-    }
-    eprintln!("Time series written to data/time_series_refresh.csv");
-
-    // Write per-seed CSV for external analysis
-    let mut seed_file = fs::File::create("D:/project/d0-vm/data/per_seed_summary.csv")
+    // Per-seed CSV
+    let mut seed_file = fs::File::create("D:/project/d0-vm/data/large_scale/per_seed_summary.csv")
         .expect("Failed to create per-seed CSV");
     writeln!(seed_file, "seed,group,refresh_ratio,eat_ratio,divide_ratio,population,avg_energy").unwrap();
-    for (i, &seed) in seeds.iter().enumerate() {
-        writeln!(seed_file, "{},exp,{:.6},{:.6},{:.6},{:.2},{:.2}",
-            seed, exp_refresh[i], exp_eat[i], exp_divide[i], exp_pop[i], exp_energy[i]).unwrap();
-        writeln!(seed_file, "{},ctrl,{:.6},{:.6},{:.6},{:.2},{:.2}",
-            seed, ctrl_refresh[i], ctrl_eat[i], ctrl_divide[i], ctrl_pop[i], ctrl_energy[i]).unwrap();
+    for r in exp_results.iter().chain(ctrl_results.iter()) {
+        writeln!(seed_file, "{},{},{:.6},{:.6},{:.6},{:.2},{:.2}",
+            r.seed, r.group, r.refresh, r.eat, r.divide, r.pop, r.energy).unwrap();
     }
-    eprintln!("Per-seed summary written to data/per_seed_summary.csv");
 
+    eprintln!("\nResults written to data/large_scale/");
     println!("{}", report);
 }
