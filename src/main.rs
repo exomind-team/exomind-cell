@@ -11,10 +11,12 @@ mod organism;
 mod world;
 mod experiment;
 mod tui;
+mod cell_vm;
 
 use std::fs;
 use organism::Config;
 use experiment::{run_experiment, analyze_and_report, compute_steady_state, SteadyState};
+use cell_vm::{CellConfig, run_cell_experiment, cell_compute_steady_state, CellSteadyState};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -39,10 +41,17 @@ fn main() {
         return;
     }
 
+    // Cell VM mode: cargo run -- --cell
+    if args.iter().any(|a| a == "--cell") {
+        run_cell_experiments();
+        return;
+    }
+
     eprintln!("D0 Virtual Machine — Operational Closure Experiment v3");
     eprintln!("======================================================");
     eprintln!("  500k ticks, E_MAX=1000, 5 seeds");
-    eprintln!("  Use --tui for real-time visualization\n");
+    eprintln!("  Use --tui for real-time visualization");
+    eprintln!("  Use --cell for cell-based v3 experiments\n");
 
     let seeds: Vec<u64> = vec![42, 137, 256, 999, 2026];
     let num_seeds = seeds.len();
@@ -214,5 +223,80 @@ fn main() {
     fs::write("D:/project/d0-vm/RESULTS.md", &report).expect("Failed to write RESULTS.md");
     eprintln!("\nResults written to RESULTS.md");
 
+    println!("{}", report);
+}
+
+// ============================================================================
+// Cell VM v3 experiments
+// ============================================================================
+
+fn run_cell_experiments() {
+    eprintln!("D0 Virtual Machine — Cell-based v3 Experiments");
+    eprintln!("===============================================\n");
+
+    let seeds: Vec<u64> = vec![42, 137, 256];
+    let mut report = String::new();
+    report.push_str("# D0 VM Cell-based v3 Experiment Results\n\n");
+    report.push_str("## Architecture\n\n");
+    report.push_str("- **Unified Cell system**: Code/Energy/Stomach cells with per-cell freshness\n");
+    report.push_str("- **Two-step digestion**: EAT (food pool -> Stomach) + DIGEST (Stomach -> Energy)\n");
+    report.push_str("- **Local REFRESH**: refreshes cells within radius R of current IP position\n");
+    report.push_str("- **Gradual degradation**: individual cells die (freshness=0), not instant organism death\n\n");
+
+    // =========================================================================
+    // Experiment A: 3-seed exp vs ctrl (500k ticks)
+    // =========================================================================
+    report.push_str("## Experiment A: Cell v3 Exp vs Ctrl (3 seeds, 500k ticks)\n\n");
+    report.push_str("| Seed | Group | Survived | Avg Pop | Avg Energy | EAT% | DIGEST% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|------|-------|----------|---------|-----------|------|---------|----------|--------|\n");
+
+    for &seed in &seeds {
+        eprintln!(">>> Cell Experiment A, seed {}", seed);
+
+        let exp = CellConfig::experimental();
+        let exp_snap = run_cell_experiment(&format!("cell_exp_{}", seed), exp, seed);
+        let exp_ss = cell_compute_steady_state(&exp_snap);
+
+        let ctrl = CellConfig::control();
+        let ctrl_snap = run_cell_experiment(&format!("cell_ctrl_{}", seed), ctrl, seed);
+        let ctrl_ss = cell_compute_steady_state(&ctrl_snap);
+
+        for (group, ss) in [("Exp", &exp_ss), ("Ctrl", &ctrl_ss)] {
+            report.push_str(&format!(
+                "| {} | {} | {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+                seed, group, if ss.survived { "YES" } else { "NO" },
+                ss.avg_population, ss.avg_energy,
+                ss.eat_ratio * 100.0, ss.digest_ratio * 100.0,
+                ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
+            ));
+        }
+    }
+
+    // =========================================================================
+    // Experiment B: CELL_ENERGY_MAX gradient (seed=42)
+    // =========================================================================
+    report.push_str("\n## Experiment B: CELL_ENERGY_MAX Gradient (seed=42, 500k ticks)\n\n");
+    report.push_str("| CEM | Survived | Avg Pop | Avg Energy | EAT% | DIGEST% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|-----|----------|---------|-----------|------|---------|----------|--------|\n");
+
+    for cem in [5u8, 10, 20, 50] {
+        eprintln!(">>> Cell Experiment B, cell_energy_max={}", cem);
+        let mut config = CellConfig::experimental();
+        config.cell_energy_max = cem;
+        let snap = run_cell_experiment(&format!("cell_cem_{}", cem), config, 42);
+        let ss = cell_compute_steady_state(&snap);
+        report.push_str(&format!(
+            "| {} | {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+            cem, if ss.survived { "YES" } else { "NO" },
+            ss.avg_population, ss.avg_energy,
+            ss.eat_ratio * 100.0, ss.digest_ratio * 100.0,
+            ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
+        ));
+    }
+
+    report.push_str("\n---\n\n*Generated by D0 VM v3 Cell-based experiments*\n");
+
+    fs::write("D:/project/d0-vm/CELL_RESULTS.md", &report).expect("Failed to write CELL_RESULTS.md");
+    eprintln!("\nCell results written to CELL_RESULTS.md");
     println!("{}", report);
 }
