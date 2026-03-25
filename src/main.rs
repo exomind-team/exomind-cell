@@ -727,105 +727,128 @@ fn run_statistical_analysis() {
 // Real CPU data-driven experiment
 // ============================================================================
 
-fn run_realcpu_experiment() {
-    use sysinfo::System;
+/// Run one EXP-009 round: CPU-modulated food vs constant food.
+/// Uses hash-based pseudo-CPU for reproducibility in parallel.
+fn run_cpu_round(seed: u64) -> (cell_vm::CellSteadyState, cell_vm::CellSteadyState) {
     use cell_vm::{CellConfig, CellWorld, cell_seed_a, cell_seed_b};
 
-    eprintln!("ExoMind Cell — Real CPU Experiment");
-    eprintln!("==================================");
-    eprintln!("  Food = f(CPU availability). Base food = 500.\n");
-
-    let mut sys = System::new_all();
-    let base_food: i32 = 500;
     let total_ticks: u64 = 500_000;
-    let cpu_sample_interval: u64 = 100;
+    let base_food: i32 = 500;
+    let cpu_interval: u64 = 100;
 
+    // CPU-modulated group
     let mut config = CellConfig::experimental();
     config.cell_energy_max = 50;
-    config.food_per_tick = 50; // Baseline food (CPU modulation adds on top)
+    config.food_per_tick = 50; // baseline
     config.total_ticks = total_ticks;
     config.max_organisms = 200;
 
-    let mut world = CellWorld::new(config.clone(), 42);
+    let mut world = CellWorld::new(config.clone(), seed);
     for _ in 0..20 { world.add_organism(cell_seed_a(&config)); }
     for _ in 0..20 { world.add_organism(cell_seed_b(&config)); }
 
-    // Control: constant food at same average as base_food injection
+    // Constant food control (matching avg effective food)
     let mut ctrl_config = config.clone();
-    ctrl_config.food_per_tick = 50 + base_food / (cpu_sample_interval as i32); // base + avg injection
-    let mut ctrl_world = CellWorld::new(ctrl_config.clone(), 42);
+    ctrl_config.food_per_tick = 55; // 50 baseline + ~5 avg injection
+    let mut ctrl_world = CellWorld::new(ctrl_config.clone(), seed);
     for _ in 0..20 { ctrl_world.add_organism(cell_seed_a(&ctrl_config)); }
     for _ in 0..20 { ctrl_world.add_organism(cell_seed_b(&ctrl_config)); }
 
-    let mut cpu_log: Vec<(u64, f32, i32)> = Vec::new(); // (tick, cpu_usage, food_injected)
-
     for t in 0..total_ticks {
-        // Sample CPU every cpu_sample_interval ticks
-        if t % cpu_sample_interval == 0 {
-            sys.refresh_cpu_usage();
-            let cpu_usage = sys.global_cpu_usage() / 100.0; // 0.0-1.0
-            // Floor: always provide at least 30% of base food
-            // Scale remaining 70% by CPU availability
-            // This prevents self-starvation (experiment itself uses CPU)
+        // Hash-based pseudo-CPU signal (deterministic, varies with tick and seed)
+        if t % cpu_interval == 0 {
+            let block = t / cpu_interval;
+            let hash = block.wrapping_mul(6364136223846793005).wrapping_add(seed) >> 33;
+            let cpu_usage = (hash % 100) as f32 / 100.0;
             let available = 0.3 + 0.7 * (1.0 - cpu_usage).max(0.0);
             let food = (base_food as f32 * available) as i32;
             world.food_pool += food;
-            cpu_log.push((t, cpu_usage, food));
-
-            if t % (total_ticks / 10) == 0 && t > 0 {
-                let alive = world.organisms.iter().filter(|o| o.alive).count();
-                eprintln!("  tick {}/{} — CPU {:.0}% → food {} — {} alive",
-                    t, total_ticks, cpu_usage * 100.0, food, alive);
-            }
         }
-
         world.tick();
         ctrl_world.tick();
     }
 
-    // Compute steady states
     world.take_snapshot();
     ctrl_world.take_snapshot();
-    let exp_ss = cell_compute_steady_state(&world.snapshots);
-    let ctrl_ss = cell_compute_steady_state(&ctrl_world.snapshots);
+    (cell_compute_steady_state(&world.snapshots), cell_compute_steady_state(&ctrl_world.snapshots))
+}
 
-    // Write CPU log
-    let _ = fs::create_dir_all("D:/project/d0-vm/data");
-    let mut log_file = fs::File::create("D:/project/d0-vm/data/cpu_log.csv")
-        .expect("Failed to create cpu_log.csv");
-    writeln!(log_file, "tick,cpu_usage,food_injected").unwrap();
-    for (t, cpu, food) in &cpu_log {
-        writeln!(log_file, "{},{:.4},{}", t, cpu, food).unwrap();
+fn run_realcpu_experiment() {
+    use rayon::prelude::*;
+
+    eprintln!("EXP-009: CPU-Modulated Food — 100 Independent Rounds");
+    eprintln!("====================================================");
+    eprintln!("  FROZEN PARAMS: food=50 base + 500 injection/100tick, CEM=50");
+    eprintln!("  100 rounds, 500k ticks, --threads limited\n");
+
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-009-realcpu/data");
+
+    let rounds: Vec<u64> = (6000..6100).collect(); // 100 seeds
+
+    let results: Vec<(u64, cell_vm::CellSteadyState, cell_vm::CellSteadyState)> = rounds.par_iter()
+        .map(|&seed| {
+            if seed % 10 == 0 { eprintln!("  Round seed {}...", seed); }
+            let (cpu, ctrl) = run_cpu_round(seed);
+            (seed, cpu, ctrl)
+        })
+        .collect();
+
+    // Extract metrics
+    let cpu_eat: Vec<f64> = results.iter().map(|(_, c, _)| c.eat_ratio).collect();
+    let ctrl_eat: Vec<f64> = results.iter().map(|(_, _, c)| c.eat_ratio).collect();
+    let cpu_ref: Vec<f64> = results.iter().map(|(_, c, _)| c.refresh_ratio).collect();
+    let ctrl_ref: Vec<f64> = results.iter().map(|(_, _, c)| c.refresh_ratio).collect();
+    let cpu_pop: Vec<f64> = results.iter().map(|(_, c, _)| c.avg_population).collect();
+    let ctrl_pop: Vec<f64> = results.iter().map(|(_, _, c)| c.avg_population).collect();
+
+    let comp_eat = stats::compare_groups("EAT", &cpu_eat, &ctrl_eat);
+    let comp_ref = stats::compare_groups("REFRESH", &cpu_ref, &ctrl_ref);
+    let comp_pop = stats::compare_groups("Population", &cpu_pop, &ctrl_pop);
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let survived_cpu = results.iter().filter(|(_, c, _)| c.survived).count();
+    let survived_ctrl = results.iter().filter(|(_, _, c)| c.survived).count();
+
+    // Direction wins
+    let eat_positive = cpu_eat.iter().zip(ctrl_eat.iter()).filter(|(a, b)| a > b).count();
+    let ref_diff: Vec<f64> = cpu_ref.iter().zip(ctrl_ref.iter()).map(|(a, b)| a - b).collect();
+
+    let mut report = String::new();
+    report.push_str("# EXP-009: CPU-Modulated Food — 100 Independent Rounds\n\n");
+    report.push_str("## Frozen Parameters\n\n");
+    report.push_str("- food_per_tick=50 (baseline) + 500 injection per 100 ticks\n");
+    report.push_str("- CPU floor: 30%, formula: food += 500 * (0.3 + 0.7*(1-cpu))\n");
+    report.push_str("- Control: constant 55/tick\n");
+    report.push_str("- CEM=50, max=200, 20A+20B, 500k ticks\n");
+    report.push_str("- 100 rounds (seeds 6000-6099), hash-based pseudo-CPU\n\n");
+
+    report.push_str("## Results\n\n");
+    report.push_str(&format!("Survived: CPU {}/100, Ctrl {}/100\n\n", survived_cpu, survived_ctrl));
+    report.push_str("| Metric | CPU-modulated | Constant | Diff | p | d |\n");
+    report.push_str("|--------|-------------|----------|------|---|---|\n");
+    report.push_str(&format!("| EAT% | {:.1} | {:.1} | {:.4} | {:.4} | {:.3} |\n",
+        avg(&cpu_eat)*100.0, avg(&ctrl_eat)*100.0, comp_eat.mean_diff, comp_eat.p_value, comp_eat.cohens_d));
+    report.push_str(&format!("| REFRESH% | {:.1} | {:.1} | {:.4} | {:.4} | {:.3} |\n",
+        avg(&cpu_ref)*100.0, avg(&ctrl_ref)*100.0, comp_ref.mean_diff, comp_ref.p_value, comp_ref.cohens_d));
+    report.push_str(&format!("| Population | {:.1} | {:.1} | {:.1} | {:.4} | {:.3} |\n",
+        avg(&cpu_pop), avg(&ctrl_pop), comp_pop.mean_diff, comp_pop.p_value, comp_pop.cohens_d));
+
+    report.push_str(&format!("\n## Direction Win Rate\n\n"));
+    report.push_str(&format!("- EAT (cpu > ctrl): {}/100 ({:.0}%)\n", eat_positive, eat_positive as f64));
+
+    report.push_str("\n---\n*EXP-009: 100 independent rounds with frozen parameters*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-009-realcpu";
+    fs::write(format!("{}/experiment.md", dir), &report).expect("write");
+
+    let mut csv = fs::File::create(format!("{}/data/per_round.csv", dir)).expect("csv");
+    writeln!(csv, "seed,cpu_eat,ctrl_eat,cpu_refresh,ctrl_refresh,cpu_pop,ctrl_pop").unwrap();
+    for (i, &seed) in rounds.iter().enumerate() {
+        writeln!(csv, "{},{:.6},{:.6},{:.6},{:.6},{:.2},{:.2}",
+            seed, cpu_eat[i], ctrl_eat[i], cpu_ref[i], ctrl_ref[i], cpu_pop[i], ctrl_pop[i]).unwrap();
     }
 
-    // Report
-    let mut report = String::new();
-    report.push_str("# Real CPU Experiment Results\n\n");
-    report.push_str(&format!("- Base food: {}\n", base_food));
-    report.push_str(&format!("- CPU sample interval: {} ticks\n", cpu_sample_interval));
-    report.push_str(&format!("- Total ticks: {}\n", total_ticks));
-    report.push_str(&format!("- CPU samples: {}\n\n", cpu_log.len()));
-
-    let avg_cpu: f32 = cpu_log.iter().map(|(_, c, _)| c).sum::<f32>() / cpu_log.len() as f32;
-    let avg_food: f32 = cpu_log.iter().map(|(_, _, f)| *f as f32).sum::<f32>() / cpu_log.len() as f32;
-    report.push_str(&format!("- Avg CPU usage: {:.1}%\n", avg_cpu * 100.0));
-    report.push_str(&format!("- Avg food injected: {:.0}\n\n", avg_food));
-
-    report.push_str("| Metric | Real CPU | Constant Food |\n");
-    report.push_str("|--------|---------|---------------|\n");
-    report.push_str(&format!("| Survived | {} | {} |\n",
-        if exp_ss.survived { "YES" } else { "NO" },
-        if ctrl_ss.survived { "YES" } else { "NO" }));
-    report.push_str(&format!("| Avg Pop | {:.1} | {:.1} |\n", exp_ss.avg_population, ctrl_ss.avg_population));
-    report.push_str(&format!("| Avg Energy | {:.1} | {:.1} |\n", exp_ss.avg_energy, ctrl_ss.avg_energy));
-    report.push_str(&format!("| EAT% | {:.1} | {:.1} |\n", exp_ss.eat_ratio * 100.0, ctrl_ss.eat_ratio * 100.0));
-    report.push_str(&format!("| REFRESH% | {:.1} | {:.1} |\n", exp_ss.refresh_ratio * 100.0, ctrl_ss.refresh_ratio * 100.0));
-    report.push_str(&format!("| DIVIDE% | {:.1} | {:.1} |\n", exp_ss.divide_ratio * 100.0, ctrl_ss.divide_ratio * 100.0));
-
-    report.push_str("\n---\n*Real CPU experiment: food scales with system CPU availability*\n");
-
-    fs::write("D:/project/d0-vm/data/realcpu_results.md", &report).expect("Failed to write");
-    eprintln!("\nResults written to data/realcpu_results.md");
+    eprintln!("\nResults: docs/experiments/EXP-009-realcpu/experiment.md");
     println!("{}", report);
 }
 
