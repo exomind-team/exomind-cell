@@ -62,11 +62,11 @@ pub fn run_experiment(name: &str, config: Config, seed: u64) -> Vec<Snapshot> {
     world.run();
 
     let safe_name = name.replace(' ', "_");
-    let csv_path = format!("D:/project/d0-vm/{}.csv", safe_name);
+    let csv_path = format!("D:/project/d0-vm/data/{}.csv", safe_name);
     world.export_csv(&csv_path);
 
     if !world.genome_dumps.is_empty() {
-        let genome_path = format!("D:/project/d0-vm/{}_genomes.txt", safe_name);
+        let genome_path = format!("D:/project/d0-vm/data/{}_genomes.txt", safe_name);
         world.export_genomes(&genome_path);
     }
 
@@ -91,9 +91,9 @@ pub fn run_stigmergy_experiment(name: &str, config: Config, seed: u64) -> Vec<Sn
     world.run();
 
     let safe_name = name.replace(' ', "_");
-    world.export_csv(&format!("D:/project/d0-vm/{}.csv", safe_name));
+    world.export_csv(&format!("D:/project/d0-vm/data/{}.csv", safe_name));
     if !world.genome_dumps.is_empty() {
-        world.export_genomes(&format!("D:/project/d0-vm/{}_genomes.txt", safe_name));
+        world.export_genomes(&format!("D:/project/d0-vm/data/{}_genomes.txt", safe_name));
     }
 
     // Export medium state at end

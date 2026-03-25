@@ -83,6 +83,51 @@ During DIVIDE:
 
 **Seed B** (8 instructions): `EAT, REFRESH, SENSE_SELF, CMP, JNZ, JMP, DIVIDE, JMP` — survival + conditional reproduction when energy > threshold.
 
+---
+
+## Cell-based VM (v3)
+
+v3 replaces the global energy/freshness model with a unified Cell system.
+
+### Cell Types
+
+```rust
+enum CellType {
+    Code(Instruction),  // executable instruction
+    Energy(u8),         // energy storage (0..cell_energy_max)
+    Stomach(u8),        // undigested food buffer
+}
+
+struct Cell {
+    content: CellType,
+    freshness: u8,      // independent decay timer
+}
+```
+
+### Key Differences from v2
+
+| Aspect | v2 | v3 |
+|--------|----|----|
+| Energy | Global `energy: i32` | Distributed across Energy cells |
+| Freshness | Global (whole organism) | Per-cell (independent decay) |
+| Eating | EAT directly adds energy | EAT -> Stomach, DIGEST -> Energy |
+| REFRESH | Resets global freshness | Resets cells within radius R of IP |
+| Death | Instant (energy=0 or freshness=0) | Gradual (cells die individually) |
+| Body size | Code length only | Total cell count (Code + Energy + Stomach) |
+
+### Core Tension
+
+Bigger body = more Energy cells = higher energy cap = can reproduce.
+But bigger body = more cells to REFRESH = more maintenance cost.
+
+This is the fundamental trade-off that operational closure creates.
+
+### v3 Seeds
+
+**Seed A** (7 cells): `[Code:EAT] [Code:DIGEST] [Code:REFRESH] [Code:JMP] [Stomach] [Energy] [Energy]`
+
+**Seed B** (14 cells): Conditional DIVIDE variant with 2 Stomachs + 3 Energy cells.
+
 ## Theoretical Basis
 
 The D0 VM implements the **operational closure** concept from Cognitive Life Science: a system whose own operations are necessary and sufficient for its continued existence. The freshness mechanism ensures that merely existing (having code) is not enough — the organism must *execute* specific operations (REFRESH) to maintain its body, creating the self-referential loop that characterizes life.

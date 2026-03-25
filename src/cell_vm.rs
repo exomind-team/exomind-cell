@@ -732,7 +732,7 @@ pub fn run_cell_experiment(name: &str, config: CellConfig, seed: u64) -> Vec<Cel
     world.run();
 
     let safe_name = name.replace(' ', "_");
-    world.export_csv(&format!("D:/project/d0-vm/{}.csv", safe_name));
+    world.export_csv(&format!("D:/project/d0-vm/data/{}.csv", safe_name));
 
     world.snapshots
 }

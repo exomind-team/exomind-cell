@@ -69,6 +69,31 @@ low_energy_eat_rate, low_freshness_refresh_rate, max_generation
 
 All ratios are computed over the 1000-tick snapshot interval.
 
+## Experiment 3: Cell v3 (per-cell freshness)
+
+Run with `cargo run --release -- --cell`.
+
+### Experiment A: Exp vs Ctrl (3 seeds, 500k ticks)
+
+| File | Group | Seed |
+|------|-------|------|
+| `data/cell_exp_42.csv` | Experimental | 42 |
+| `data/cell_ctrl_42.csv` | Control | 42 |
+| `data/cell_exp_137.csv` | Experimental | 137 |
+| `data/cell_ctrl_137.csv` | Control | 137 |
+| `data/cell_exp_256.csv` | Experimental | 256 |
+| `data/cell_ctrl_256.csv` | Control | 256 |
+
+### Experiment B: CELL_ENERGY_MAX gradient
+
+| File | CEM |
+|------|-----|
+| `data/cell_cem_5.csv` | 5 |
+| `data/cell_cem_10.csv` | 10 |
+| `data/cell_cem_20.csv` | 20 |
+| `data/cell_cem_50.csv` | 50 |
+
 ## Full Analysis
 
-See [RESULTS.md](../RESULTS.md) for the complete analysis with cross-seed statistics and interpretation.
+- v2 results: [RESULTS.md](../RESULTS.md)
+- v3 cell results: [CELL_RESULTS.md](../CELL_RESULTS.md)

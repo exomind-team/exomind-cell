@@ -21,8 +21,13 @@ use cell_vm::{CellConfig, run_cell_experiment, cell_compute_steady_state, CellSt
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    // TUI mode
+    // TUI mode (v2 only; cell v3 TUI is TODO)
     if args.iter().any(|a| a == "--tui") {
+        if args.iter().any(|a| a == "--cell") {
+            eprintln!("ERROR: --tui --cell combination not yet supported.");
+            eprintln!("TUI currently works with v2 mode only. Cell v3 TUI is TODO.");
+            return;
+        }
         let mut config = Config::experimental();
         if args.iter().any(|a| a == "--no-decay") {
             config.freshness_decay = false;
@@ -34,7 +39,7 @@ fn main() {
         config.snapshot_interval = 100;
         config.genome_dump_interval = 0;
 
-        eprintln!("Starting TUI mode...");
+        eprintln!("Starting TUI mode (v2)...");
         if let Err(e) = tui::run_tui(config) {
             eprintln!("TUI error: {}", e);
         }
