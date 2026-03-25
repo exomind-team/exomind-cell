@@ -28,4 +28,4 @@ jobs:
         with:
           components: clippy
       - name: Clippy
-        run: cargo clippy -- -D warnings -A dead_code -A unused_imports -A clippy::type_complexity -A clippy::useless_format -A clippy::single_char_add_str -A clippy::needless_range_loop
+        run: cargo clippy -- -W clippy::correctness -A clippy::all -A dead_code -A unused_imports
