@@ -103,6 +103,12 @@ fn main() {
         return;
     }
 
+    // Value gradient analysis: cargo run -- --gradient
+    if args.iter().any(|a| a == "--gradient") {
+        run_gradient();
+        return;
+    }
+
     // GATE x Parameter cross experiment: cargo run -- --exp-cross
     if args.iter().any(|a| a == "--exp-cross") {
         run_exp_cross();
@@ -2617,4 +2623,73 @@ fn run_opt_gate() {
 
     eprintln!("\nResults: {}/experiment.md", dir);
     println!("{}", report);
+}
+
+// ============================================================================
+// Value Gradient: energy-bucketed instruction analysis
+// ============================================================================
+
+fn run_gradient_trial(seed: u64, freshness_decay: bool) -> [[u64; 4]; 5] {
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.max_organisms = 1000;
+    config.food_per_tick = 500;
+    config.total_ticks = 2_000_000;
+    config.snapshot_interval = 100_000;
+    config.genome_dump_interval = 0;
+    config.freshness_decay = freshness_decay;
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..50 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..50 { world.add_organism(cell_seed_b(&config)); }
+    world.run();
+    world.energy_buckets
+}
+
+fn run_gradient() {
+    use rayon::prelude::*;
+    eprintln!("Value Gradient Analysis (100 seeds, 2M ticks)\n");
+
+    let seeds: Vec<u64> = (3000..3100).collect();
+
+    eprintln!("Running exp (decay=true)...");
+    let exp_b: Vec<[[u64; 4]; 5]> = seeds.par_iter().map(|&s| run_gradient_trial(s, true)).collect();
+    eprintln!("Running ctrl (decay=false)...");
+    let ctrl_b: Vec<[[u64; 4]; 5]> = seeds.par_iter().map(|&s| run_gradient_trial(s, false)).collect();
+
+    let mut ea = [[0u64; 4]; 5];
+    let mut ca = [[0u64; 4]; 5];
+    for b in &exp_b { for i in 0..5 { for j in 0..4 { ea[i][j] += b[i][j]; } } }
+    for b in &ctrl_b { for i in 0..5 { for j in 0..4 { ca[i][j] += b[i][j]; } } }
+
+    let dir = "D:/project/d0-vm/docs/experiments/value-gradient";
+    let _ = std::fs::create_dir_all(dir);
+    let labels = ["0-20%", "20-40%", "40-60%", "60-80%", "80-100%"];
+
+    let mut csv = std::fs::File::create(format!("{}/gradient_data.csv", dir)).expect("csv");
+    use std::io::Write;
+    writeln!(csv, "group,bucket,eat,refresh,divide,total,eat_pct,refresh_pct,divide_pct").unwrap();
+    for (name, agg) in [("exp", &ea), ("ctrl", &ca)] {
+        for i in 0..5 {
+            let t = agg[i][3].max(1);
+            writeln!(csv, "{},{},{},{},{},{},{:.4},{:.4},{:.4}", name, labels[i],
+                agg[i][0], agg[i][1], agg[i][2], t,
+                agg[i][0] as f64/t as f64, agg[i][1] as f64/t as f64, agg[i][2] as f64/t as f64).unwrap();
+        }
+    }
+
+    let mut rpt = String::new();
+    rpt.push_str("# Value Gradient Analysis\n\n");
+    for (name, agg) in [("Experimental", &ea), ("Control", &ca)] {
+        rpt.push_str(&format!("## {}\n\n| Bucket | EAT% | REFRESH% | DIVIDE% |\n|--------|------|----------|--------|\n", name));
+        for i in 0..5 {
+            let t = agg[i][3].max(1) as f64;
+            rpt.push_str(&format!("| {} | {:.1} | {:.1} | {:.1} |\n", labels[i],
+                agg[i][0] as f64/t*100.0, agg[i][1] as f64/t*100.0, agg[i][2] as f64/t*100.0));
+        }
+        rpt.push('\n');
+    }
+    std::fs::write(format!("{}/analysis.md", dir), &rpt).expect("write");
+    eprintln!("\nResults: {}/analysis.md", dir);
+    println!("{}", rpt);
 }

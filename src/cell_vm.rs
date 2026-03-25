@@ -383,6 +383,9 @@ pub struct CellWorld {
     interval_refresh: u64,
     interval_divide: u64,
     interval_instructions: u64,
+    // Energy-bucketed instruction counts: [bucket][0=eat, 1=refresh, 2=divide, 3=total]
+    // Buckets: 0=0-20%, 1=20-40%, 2=40-60%, 3=60-80%, 4=80-100% of energy capacity
+    pub energy_buckets: [[u64; 4]; 5],
 }
 
 impl CellWorld {
@@ -406,6 +409,7 @@ impl CellWorld {
             interval_refresh: 0,
             interval_divide: 0,
             interval_instructions: 0,
+            energy_buckets: [[0; 4]; 5],
         }
     }
 
@@ -497,6 +501,12 @@ impl CellWorld {
         org.total_instructions += 1;
         self.interval_instructions += 1;
 
+        // Energy bucket tracking
+        let energy_cap = (org.cells.iter().filter(|c| c.is_energy()).count() as i32) * config.cell_energy_max as i32;
+        let energy_pct = if energy_cap > 0 { (org.total_energy() as f64 / energy_cap as f64 * 100.0) as usize } else { 0 };
+        let bucket = (energy_pct / 20).min(4);
+        self.energy_buckets[bucket][3] += 1; // total for this bucket
+
         let mut new_organism: Option<CellOrganism> = None;
 
         match instr {
@@ -546,6 +556,7 @@ impl CellWorld {
             Instruction::Eat => {
                 org.eat_count += 1;
                 self.interval_eat += 1;
+                self.energy_buckets[bucket][0] += 1; // EAT in this bucket
                 let cem = config.cell_energy_max;
 
                 if config.multi_food {
@@ -653,6 +664,7 @@ impl CellWorld {
             Instruction::Refresh => {
                 org.refresh_count += 1;
                 self.interval_refresh += 1;
+                self.energy_buckets[bucket][1] += 1; // REFRESH in this bucket
 
                 // Refresh cells around current IP position (radius R)
                 // First, find the actual cell index of the current Code cell
@@ -682,6 +694,7 @@ impl CellWorld {
             Instruction::Divide => {
                 org.divide_count += 1;
                 self.interval_divide += 1;
+                self.energy_buckets[bucket][2] += 1; // DIVIDE in this bucket
 
                 let enough_energy = org.total_energy() >= (config.divide_cost as i32) * 2 + 10;
                 if enough_energy && org_count < config.max_organisms {
