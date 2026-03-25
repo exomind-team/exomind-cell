@@ -101,6 +101,12 @@ fn main() {
         return;
     }
 
+    // EXP-014 lineage analysis: cargo run --release -- --lineage014
+    if args.iter().any(|a| a == "--lineage014") {
+        run_exp014_lineage();
+        return;
+    }
+
     // EXP-001~003 100-round replication: cargo run --release -- --replicate001
     if args.iter().any(|a| a == "--replicate001") {
         run_replication_exp001_003();
