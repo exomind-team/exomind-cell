@@ -1,8 +1,8 @@
-# D0 Virtual Machine
+# ExoMind Cell
 
 A minimal artificial life virtual machine for testing the **operational closure hypothesis**: that freshness decay (the constraint forcing organisms to actively maintain their own body) drives the evolution of conditional survival-priority behavior.
 
-Part of the [Cognitive Life Science](https://github.com/exomind-team) research program.
+Part of the [Cognitive Life Science](https://github.com/exomind-team) research program. Repository: [exomind-team/exomind-cell](https://github.com/exomind-team/exomind-cell).
 
 ## Quick Start
 
