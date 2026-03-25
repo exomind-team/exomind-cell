@@ -111,28 +111,39 @@ pub fn run_tui(config: Config) -> io::Result<()> {
 
     let mut pop_history: Vec<u64> = Vec::new();
     let mut energy_history: Vec<u64> = Vec::new();
-    let ticks_per_frame = 50; // Run 50 ticks per frame for smooth animation
-    let target_fps = 30;
-    let frame_duration = Duration::from_millis(1000 / target_fps);
+    let mut ticks_per_frame: u64 = 50;
+    let mut paused = false;
+    let frame_duration = Duration::from_millis(100); // 10 FPS (stable, no flicker)
 
     loop {
         let frame_start = Instant::now();
 
-        // Check for quit
+        // Handle input
         if event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    break;
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('p') => paused = !paused,
+                        KeyCode::Char('s') if paused => { world.tick(); },
+                        KeyCode::Char('+') | KeyCode::Char('=') => {
+                            ticks_per_frame = (ticks_per_frame * 2).min(1000);
+                        },
+                        KeyCode::Char('-') => {
+                            ticks_per_frame = (ticks_per_frame / 2).max(1);
+                        },
+                        _ => {}
+                    }
                 }
             }
         }
 
-        // Run simulation ticks
-        for _ in 0..ticks_per_frame {
-            if world.tick >= config.total_ticks {
-                break;
+        // Run simulation ticks (unless paused)
+        if !paused {
+            for _ in 0..ticks_per_frame {
+                if world.tick >= config.total_ticks { break; }
+                world.tick();
             }
-            world.tick();
         }
 
         // Collect history (every frame = every 50 ticks)
@@ -326,12 +337,12 @@ fn draw_ui(frame: &mut Frame, stats: &LiveStats, config: &Config) {
 }
 
 // ============================================================================
-// Cell TUI mode
+// Cell TUI mode (interactive with pause/step/inspect/speed control)
 // ============================================================================
 
-use crate::cell_vm::{CellConfig, CellWorld, CellOrganism, cell_seed_a, cell_seed_b};
+use crate::cell_vm::{CellConfig, CellWorld, CellOrganism, CellType, cell_seed_a, cell_seed_b};
 
-/// Run the Cell v3 TUI visualization.
+/// Run the Cell v3 TUI with interactive controls.
 pub fn run_cell_tui(config: CellConfig) -> io::Result<()> {
     enable_raw_mode()?;
     io::stdout().execute(EnterAlternateScreen)?;
@@ -343,168 +354,256 @@ pub fn run_cell_tui(config: CellConfig) -> io::Result<()> {
 
     let mut pop_history: Vec<u64> = Vec::new();
     let mut energy_history: Vec<u64> = Vec::new();
-    let ticks_per_frame = 50;
-    let frame_duration = Duration::from_millis(1000 / 30);
+    let mut paused = false;
+    let mut ticks_per_frame: u64 = 50;
+    let mut show_help = false;
+    let mut inspect_idx: Option<usize> = None; // organism index to inspect
+    let frame_duration = Duration::from_millis(100); // 10 FPS
 
     loop {
         let frame_start = Instant::now();
 
+        // Handle input
         if event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    break;
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('p') => { paused = !paused; inspect_idx = None; },
+                        KeyCode::Char('h') => show_help = !show_help,
+                        KeyCode::Char('s') if paused => { world.tick(); }, // single step
+                        KeyCode::Char('+') | KeyCode::Char('=') => {
+                            ticks_per_frame = (ticks_per_frame * 2).min(1000);
+                        },
+                        KeyCode::Char('-') => {
+                            ticks_per_frame = (ticks_per_frame / 2).max(1);
+                        },
+                        KeyCode::Char('i') => {
+                            // Toggle inspect: pick first alive organism
+                            if inspect_idx.is_some() {
+                                inspect_idx = None;
+                            } else if let Some((i, _)) = world.organisms.iter().enumerate()
+                                .find(|(_, o)| o.alive)
+                            {
+                                inspect_idx = Some(i);
+                                paused = true;
+                            }
+                        },
+                        KeyCode::Right if inspect_idx.is_some() => {
+                            // Next organism
+                            let cur = inspect_idx.unwrap();
+                            inspect_idx = world.organisms.iter().enumerate()
+                                .skip(cur + 1)
+                                .find(|(_, o)| o.alive)
+                                .map(|(i, _)| i)
+                                .or_else(|| world.organisms.iter().enumerate()
+                                    .find(|(_, o)| o.alive)
+                                    .map(|(i, _)| i));
+                        },
+                        KeyCode::Left if inspect_idx.is_some() => {
+                            // Previous organism
+                            let cur = inspect_idx.unwrap();
+                            inspect_idx = world.organisms.iter().enumerate()
+                                .rev()
+                                .skip(world.organisms.len().saturating_sub(cur))
+                                .find(|(_, o)| o.alive)
+                                .map(|(i, _)| i)
+                                .or_else(|| world.organisms.iter().enumerate()
+                                    .rev()
+                                    .find(|(_, o)| o.alive)
+                                    .map(|(i, _)| i));
+                        },
+                        _ => {}
+                    }
                 }
             }
         }
 
-        for _ in 0..ticks_per_frame {
-            if world.tick >= config.total_ticks { break; }
-            world.tick();
+        // Run ticks (unless paused)
+        if !paused {
+            for _ in 0..ticks_per_frame {
+                if world.tick >= config.total_ticks { break; }
+                world.tick();
+            }
         }
 
+        // Collect stats
         let alive: Vec<&CellOrganism> = world.organisms.iter().filter(|o| o.alive).collect();
         let n = alive.len();
         pop_history.push(n as u64);
         let avg_e = if n > 0 {
-            alive.iter().map(|o| o.total_energy() as u64).sum::<u64>() / n as u64
+            alive.iter().map(|o| o.total_energy() as u64).sum::<u64>() / n.max(1) as u64
         } else { 0 };
         energy_history.push(avg_e);
-
         if pop_history.len() > 200 {
             pop_history.drain(0..pop_history.len() - 200);
             energy_history.drain(0..energy_history.len() - 200);
         }
 
-        // Collect cell type counts
-        let (mut code_cells, mut energy_cells, mut stomach_cells, mut data_cells) = (0u64, 0u64, 0u64, 0u64);
-        let mut min_freshness_sum: f64 = 0.0;
-        let mut total_cells: u64 = 0;
-        let max_gen = alive.iter().map(|o| o.generation).max().unwrap_or(0);
-
+        let (mut cc, mut ec, mut sc, mut dc) = (0u64, 0u64, 0u64, 0u64);
+        let mut fresh_sum: f64 = 0.0;
         for org in &alive {
             for c in &org.cells {
-                total_cells += 1;
                 match c.content {
-                    crate::cell_vm::CellType::Code(_) => code_cells += 1,
-                    crate::cell_vm::CellType::Energy(_) => energy_cells += 1,
-                    crate::cell_vm::CellType::Stomach(_) => stomach_cells += 1,
-                    crate::cell_vm::CellType::Data(_) => data_cells += 1,
+                    CellType::Code(_) => cc += 1,
+                    CellType::Energy(_) => ec += 1,
+                    CellType::Stomach(_) => sc += 1,
+                    CellType::Data(_) => dc += 1,
                 }
             }
-            min_freshness_sum += org.min_freshness() as f64;
+            fresh_sum += org.min_freshness() as f64;
         }
-        let avg_freshness = if n > 0 { min_freshness_sum / n as f64 } else { 0.0 };
+        let avg_fresh = if n > 0 { fresh_sum / n as f64 } else { 0.0 };
         let avg_energy_f = if n > 0 { alive.iter().map(|o| o.total_energy() as f64).sum::<f64>() / n as f64 } else { 0.0 };
-
+        let max_gen = alive.iter().map(|o| o.generation).max().unwrap_or(0);
         let tick = world.tick;
         let food = world.food_pool;
-        let total_ticks = config.total_ticks;
         let cem = config.cell_energy_max;
+        let decay = config.freshness_decay;
+        let total_ticks = config.total_ticks;
+        let max_org = config.max_organisms;
+        let spd = ticks_per_frame;
+
+        // Capture inspect data before draw closure
+        let inspect_data: Option<Vec<String>> = inspect_idx.and_then(|i| {
+            world.organisms.get(i).filter(|o| o.alive).map(|org| {
+                let mut lines = vec![
+                    format!(" Organism #{} | Gen {} | Age {} | IP {}", i, org.generation, org.age, org.ip),
+                    format!(" Energy: {} | Code cells: {} | Total cells: {}", org.total_energy(), org.code_count(), org.cells.len()),
+                    String::new(),
+                ];
+                for (ci, cell) in org.cells.iter().enumerate() {
+                    let marker = if cell.is_code() {
+                        let mut code_idx = 0;
+                        for c in &org.cells[..ci] { if c.is_code() { code_idx += 1; } }
+                        if code_idx == org.ip { " <IP" } else { "" }
+                    } else { "" };
+                    lines.push(format!(" [{:2}] {} {}", ci, cell, marker));
+                }
+                lines
+            })
+        });
 
         terminal.draw(|frame| {
             let area = frame.area();
+
+            // Help overlay
+            if show_help {
+                let help_text = vec![
+                    Line::from("  p   Pause / Resume"),
+                    Line::from("  q   Quit"),
+                    Line::from("  h   Toggle this help"),
+                    Line::from("  s   Single step (paused)"),
+                    Line::from("  i   Inspect organism"),
+                    Line::from("  < > Navigate organisms"),
+                    Line::from("  +/- Speed up / down"),
+                ];
+                let help = Paragraph::new(help_text)
+                    .block(Block::default().borders(Borders::ALL).title(" Help "))
+                    .style(Style::default().fg(Color::White));
+                frame.render_widget(help, area);
+                return;
+            }
+
+            // Inspect overlay
+            if let Some(ref lines) = inspect_data {
+                let text: Vec<Line> = lines.iter().map(|s| Line::from(s.as_str())).collect();
+                let inspect_w = Paragraph::new(text)
+                    .block(Block::default().borders(Borders::ALL)
+                        .title(" Organism Inspector (i=close, <>=nav) "))
+                    .style(Style::default().fg(Color::Yellow));
+                frame.render_widget(inspect_w, area);
+                return;
+            }
+
             let main_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(1)])
                 .split(area);
 
-            // Header
+            let status = if paused { "PAUSED" } else { "RUNNING" };
             let header = Paragraph::new(format!(
-                " ExoMind Cell v3 | Tick: {}/{} ({:.0}%) | Pop: {} | Food: {} | Gen: {} ",
-                tick, total_ticks, (tick as f64 / total_ticks as f64) * 100.0,
-                n, food, max_gen,
+                " Cell v3 | {} | Tick {}/{} ({:.0}%) | Pop {} | Gen {} | x{} ",
+                status, tick, total_ticks, (tick as f64 / total_ticks as f64) * 100.0,
+                n, max_gen, spd,
             ))
-            .block(Block::default().borders(Borders::ALL).title(" Cell VM "))
-            .style(Style::default().fg(Color::Cyan).bold());
+            .block(Block::default().borders(Borders::ALL).title(" ExoMind Cell "))
+            .style(Style::default().fg(if paused { Color::Yellow } else { Color::Cyan }).bold());
             frame.render_widget(header, main_layout[0]);
 
-            // Body
             let body = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
                 .split(main_layout[1]);
 
-            // Left: stats + cell distribution
             let left = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(7), Constraint::Length(5), Constraint::Min(0)])
+                .constraints([Constraint::Length(8), Constraint::Length(5), Constraint::Min(0)])
                 .split(body[0]);
 
             let stats_text = vec![
                 Line::from(vec![
-                    Span::raw("  Avg Energy: "),
+                    Span::raw("  Energy:  "),
                     Span::styled(format!("{:.0}", avg_energy_f), Style::default().fg(Color::Yellow)),
-                    Span::raw(format!("  (CEM={})", cem)),
+                    Span::raw(format!("  CEM={}", cem)),
                 ]),
                 Line::from(vec![
-                    Span::raw("  Min Fresh:  "),
-                    Span::styled(format!("{:.0}", avg_freshness), Style::default().fg(
-                        if avg_freshness > 200.0 { Color::Green }
-                        else if avg_freshness > 100.0 { Color::Yellow }
+                    Span::raw("  Fresh:   "),
+                    Span::styled(format!("{:.0}", avg_fresh), Style::default().fg(
+                        if avg_fresh > 200.0 { Color::Green }
+                        else if avg_fresh > 100.0 { Color::Yellow }
                         else { Color::Red }
                     )),
                 ]),
-                Line::from(vec![
-                    Span::raw("  Total Cells: "),
-                    Span::styled(format!("{}", total_cells), Style::default().fg(Color::White)),
-                ]),
-                Line::from(format!("  Decay: {}", if config.freshness_decay { "ON" } else { "OFF" })),
+                Line::from(format!("  Food:    {}", food)),
+                Line::from(format!("  Cells:   {}C {}E {}S {}D", cc, ec, sc, dc)),
+                Line::from(format!("  Decay:   {}", if decay { "ON" } else { "OFF" })),
             ];
-            let stats_w = Paragraph::new(stats_text)
-                .block(Block::default().borders(Borders::ALL).title(" Statistics "));
-            frame.render_widget(stats_w, left[0]);
+            frame.render_widget(
+                Paragraph::new(stats_text)
+                    .block(Block::default().borders(Borders::ALL).title(" Stats ")),
+                left[0],
+            );
 
-            // Cell type bar chart
-            let bar_data: Vec<(&str, u64)> = vec![
-                ("Code", code_cells),
-                ("Enrg", energy_cells),
-                ("Stom", stomach_cells),
-                ("Data", data_cells),
-            ];
-            let bars = BarChart::default()
-                .block(Block::default().borders(Borders::ALL).title(format!(
-                    " Cells: {}C {}E {}S {}D ",
-                    code_cells, energy_cells, stomach_cells, data_cells
-                )))
-                .data(&bar_data)
-                .bar_width(5)
-                .bar_gap(1)
-                .bar_style(Style::default().fg(Color::Green))
-                .value_style(Style::default().fg(Color::White).bold());
-            frame.render_widget(bars, left[1]);
+            let bar_data: Vec<(&str, u64)> = vec![("Code", cc), ("Enrg", ec), ("Stom", sc), ("Data", dc)];
+            frame.render_widget(
+                BarChart::default()
+                    .block(Block::default().borders(Borders::ALL).title(" Cell Types "))
+                    .data(&bar_data).bar_width(5).bar_gap(1)
+                    .bar_style(Style::default().fg(Color::Green))
+                    .value_style(Style::default().fg(Color::White).bold()),
+                left[1],
+            );
 
-            // Right: sparklines
             let right = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(body[1]);
 
-            let pop_spark = Sparkline::default()
-                .block(Block::default().borders(Borders::ALL).title(format!(" Population ({}) ", n)))
-                .data(&pop_history)
-                .max(config.max_organisms as u64)
-                .style(Style::default().fg(Color::Cyan));
-            frame.render_widget(pop_spark, right[0]);
+            frame.render_widget(
+                Sparkline::default()
+                    .block(Block::default().borders(Borders::ALL).title(format!(" Pop ({}) ", n)))
+                    .data(&pop_history).max(max_org as u64)
+                    .style(Style::default().fg(Color::Cyan)),
+                right[0],
+            );
+            frame.render_widget(
+                Sparkline::default()
+                    .block(Block::default().borders(Borders::ALL).title(format!(" Energy ({:.0}) ", avg_energy_f)))
+                    .data(&energy_history).max((cem as u64) * 5)
+                    .style(Style::default().fg(Color::Yellow)),
+                right[1],
+            );
 
-            let e_spark = Sparkline::default()
-                .block(Block::default().borders(Borders::ALL).title(format!(" Avg Energy ({:.0}) ", avg_energy_f)))
-                .data(&energy_history)
-                .max((cem as u64) * 5)
-                .style(Style::default().fg(Color::Yellow));
-            frame.render_widget(e_spark, right[1]);
-
-            let footer = Paragraph::new(" Press 'q' to quit ")
-                .style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(footer, main_layout[2]);
+            frame.render_widget(
+                Paragraph::new(" q:quit  p:pause  h:help  i:inspect  s:step  +/-:speed ")
+                    .style(Style::default().fg(Color::DarkGray)),
+                main_layout[2],
+            );
         })?;
 
-        if world.tick >= config.total_ticks {
-            loop {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') { break; }
-                }
-            }
-            break;
+        if world.tick >= config.total_ticks && !paused {
+            paused = true; // Auto-pause at end
         }
 
         let elapsed = frame_start.elapsed();

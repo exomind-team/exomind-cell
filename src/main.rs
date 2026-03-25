@@ -72,12 +72,36 @@ fn main() {
         return;
     }
 
-    eprintln!("D0 Virtual Machine — Operational Closure Experiment v3");
-    eprintln!("======================================================");
-    eprintln!("  500k ticks, E_MAX=1000, 5 seeds");
-    eprintln!("  Use --tui for real-time visualization");
-    eprintln!("  Use --cell for cell-based v3 experiments");
-    eprintln!("  Use --stats for 30-seed statistical analysis\n");
+    // No recognized flag or --help — show help and exit
+    if !args.iter().any(|a| a == "--run-v2") {
+        println!(r#"
+  ╔═══════════════════════════════════════════╗
+  ║         exomind-cell v0.1.0               ║
+  ║    Cognitive Life Science VM               ║
+  ╠═══════════════════════════════════════════╣
+  ║  Modes:                                    ║
+  ║    --tui            v2 Classic TUI         ║
+  ║    --tui --cell     v3 Cell-based TUI      ║
+  ║    --tui --cell --no-decay  v3 Control     ║
+  ║    --cell           v3 Cell experiments     ║
+  ║    --stats          100-seed parallel       ║
+  ║    (no flag)        v2 experiments          ║
+  ║                                            ║
+  ║  TUI Controls:                             ║
+  ║    p   Pause/Resume                        ║
+  ║    q   Quit                                ║
+  ║    h   Help overlay                        ║
+  ║    s   Step (when paused)                  ║
+  ║    i   Inspect organism                    ║
+  ║    +/- Speed up/down                       ║
+  ╚═══════════════════════════════════════════╝
+"#);
+        return;
+    }
+
+    eprintln!("ExoMind Cell — Operational Closure Experiment v3");
+    eprintln!("================================================");
+    eprintln!("  500k ticks, E_MAX=1000, 5 seeds\n");
 
     let seeds: Vec<u64> = vec![42, 137, 256, 999, 2026];
     let num_seeds = seeds.len();
