@@ -1655,14 +1655,18 @@ fn run_replication_exp009() {
     let results: Vec<Exp009Round> = rounds.par_iter().map(|&round| {
         let seed = (round as u64) * 137 + 20_000;
 
-        let base_food: i32 = 300;
+        let base_food_per_tick: i32 = 50; // baseline food per tick (same as normal runs)
         let total_ticks: u64 = 500_000;
         let cpu_sample_interval: u64 = 100;
 
-        // CPU-modulated world
+        // CPU-modulated world: base food + CPU-variable bonus
+        // Every cpu_sample_interval ticks, inject a bonus proportional to CPU availability
+        // cpu_bonus = base_food * (cpu_available - 0.5) scaled around baseline
+        let bonus_base: i32 = 150; // bonus food per 100-tick sample (1.5 food/tick on top of 50/tick)
+
         let mut cpu_config = CellConfig::experimental();
         cpu_config.cell_energy_max = 50;
-        cpu_config.food_per_tick = 0; // Manual food injection
+        cpu_config.food_per_tick = base_food_per_tick; // steady baseline
         cpu_config.total_ticks = total_ticks;
         cpu_config.snapshot_interval = 5_000;
         cpu_config.genome_dump_interval = 0;
@@ -1671,12 +1675,11 @@ fn run_replication_exp009() {
         for _ in 0..10 { cpu_world.add_organism(cell_seed_a(&cpu_config)); }
         for _ in 0..10 { cpu_world.add_organism(cell_seed_b(&cpu_config)); }
 
-        // Constant-food world (same average food as CPU world)
-        let avg_available: f32 = 0.65; // expected average of floor(0.3 + 0.7*(1-u)) where u~U[0,1]
-        let const_food_per_interval = (base_food as f32 * avg_available) as i32;
+        // Constant-food world (same average food as CPU world = base_food_per_tick + bonus_base/2 per tick)
+        let const_food_per_tick = base_food_per_tick + bonus_base / cpu_sample_interval as i32;
         let mut const_config = CellConfig::experimental();
         const_config.cell_energy_max = 50;
-        const_config.food_per_tick = 0;
+        const_config.food_per_tick = const_food_per_tick;
         const_config.total_ticks = total_ticks;
         const_config.snapshot_interval = 5_000;
         const_config.genome_dump_interval = 0;
@@ -1685,7 +1688,7 @@ fn run_replication_exp009() {
         for _ in 0..10 { const_world.add_organism(cell_seed_a(&const_config)); }
         for _ in 0..10 { const_world.add_organism(cell_seed_b(&const_config)); }
 
-        // Run tick-by-tick with food injection
+        // Run tick-by-tick: cpu world gets variable bonus injection every 100 ticks
         for t in 0..total_ticks {
             if t % cpu_sample_interval == 0 {
                 // Hash-based pseudo-CPU usage (deterministic, seed-dependent)
@@ -1694,10 +1697,10 @@ fn run_replication_exp009() {
                     .wrapping_add(seed.wrapping_mul(1442695040888963407u64))
                     >> 33;
                 let cpu_usage = (hash % 100) as f32 / 100.0;
+                // CPU available: high cpu_usage → less food (organism at mercy of environment)
                 let available = 0.3 + 0.7 * (1.0 - cpu_usage).max(0.0);
-                let food = (base_food as f32 * available) as i32;
-                cpu_world.food_pool += food;
-                const_world.food_pool += const_food_per_interval;
+                let bonus = (bonus_base as f32 * available) as i32;
+                cpu_world.food_pool += bonus;
             }
             cpu_world.tick();
             const_world.tick();
