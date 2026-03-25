@@ -14,6 +14,7 @@ mod tui;
 mod cell_vm;
 mod stats;
 mod signal;
+mod lineage014;
 
 use std::fs;
 use std::io::Write as IoWrite;
@@ -103,7 +104,7 @@ fn main() {
 
     // EXP-014 lineage analysis: cargo run --release -- --lineage014
     if args.iter().any(|a| a == "--lineage014") {
-        run_exp014_lineage();
+        lineage014::run_exp014_lineage();
         return;
     }
 
