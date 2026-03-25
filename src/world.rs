@@ -360,6 +360,11 @@ impl World {
                 }
                 org.ip += 1;
             }
+
+            // GATE: not applicable in v2 mode (no Cell structure)
+            Instruction::Gate => {
+                org.ip += 1;
+            }
         }
 
         new_organism

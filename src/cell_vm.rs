@@ -195,6 +195,7 @@ pub struct CellConfig {
     pub simple_food_rate: i32,    // Simple food per tick
     pub complex_food_rate: i32,   // Complex food per tick
     pub medium_size: usize,       // Stigmergy medium for SAMPLE instruction
+    pub data_cell_gating: bool,   // Enable GATE instruction (Data cell as code switch)
     pub total_ticks: u64,
     pub snapshot_interval: u64,
     pub genome_dump_interval: u64,
@@ -218,6 +219,7 @@ impl CellConfig {
             simple_food_rate: 30,
             complex_food_rate: 10,
             medium_size: 0,
+            data_cell_gating: false,
             total_ticks: 500_000,
             snapshot_interval: 1000,
             genome_dump_interval: 50_000,
@@ -642,6 +644,51 @@ impl CellWorld {
                 }
                 org.ip += 1;
             }
+
+            // GATE: read adjacent Data cell; if value==0, skip next Code cell
+            Instruction::Gate => {
+                if config.data_cell_gating {
+                    // Find actual cell index of current Code cell
+                    let mut code_count = 0usize;
+                    let mut cell_pos = None;
+                    for (ci, c) in org.cells.iter().enumerate() {
+                        if c.is_code() {
+                            if code_count == org.ip {
+                                cell_pos = Some(ci);
+                                break;
+                            }
+                            code_count += 1;
+                        }
+                    }
+
+                    if let Some(pos) = cell_pos {
+                        // Look for adjacent Data cell (check right first, then left)
+                        let data_val = if pos + 1 < org.cells.len() {
+                            if let CellType::Data(v) = org.cells[pos + 1].content { Some(v) } else { None }
+                        } else { None }
+                        .or_else(|| {
+                            if pos > 0 {
+                                if let CellType::Data(v) = org.cells[pos - 1].content { Some(v) } else { None }
+                            } else { None }
+                        });
+
+                        if let Some(val) = data_val {
+                            if val == 0 {
+                                // Skip next Code cell
+                                org.ip += 2; // skip GATE + next code
+                            } else {
+                                org.ip += 1; // Data > 0, continue normally
+                            }
+                        } else {
+                            org.ip += 1; // No adjacent Data cell, NOP
+                        }
+                    } else {
+                        org.ip += 1;
+                    }
+                } else {
+                    org.ip += 1; // Gating disabled, NOP
+                }
+            }
         }
 
         new_organism
@@ -875,6 +922,43 @@ pub fn cell_seed_f(config: &CellConfig) -> CellOrganism {
         Cell::energy(cem, f),
         Cell::energy(cem, f),
         Cell::data(0, f),  // stores previous signal reading
+    ];
+    CellOrganism::new(cells)
+}
+
+/// Seed G: Evaluation + GATE-controlled behavior.
+///
+/// Structure: evaluation module writes to Data cell, GATE uses Data cell
+/// to conditionally execute DIVIDE. Layout:
+///   [SENSE r1] [EAT] [DIGEST] [SENSE r2] [CMP r2,r1] [STORE r0→Data]
+///   [GATE] [DIVIDE]  ← GATE checks adjacent Data cell; if 0, skip DIVIDE
+///   [REFRESH] [JMP]
+///   [Stomach] [Stomach] [Energy] [Energy] [Data(0)]
+///
+/// The Data cell is placed adjacent to GATE in the cells array.
+pub fn cell_seed_g(config: &CellConfig) -> CellOrganism {
+    let f = config.freshness_max;
+    let cem = config.cell_energy_max;
+    let cells = vec![
+        // Evaluation module: sense→act→sense→compare→store
+        Cell::code(Instruction::SenseSelf(1), f),    // 0: r1 = energy before
+        Cell::code(Instruction::Eat, f),              // 1: eat
+        Cell::code(Instruction::Load(0, 0), f),      // 2: DIGEST
+        Cell::code(Instruction::SenseSelf(2), f),    // 3: r2 = energy after
+        Cell::code(Instruction::Cmp(2, 1), f),       // 4: r0 = (after > before)? 1:0
+        Cell::code(Instruction::Store(0, 0), f),     // 5: store r0 to Data cell
+        // GATE-controlled behavior: Data cell adjacent to GATE
+        Cell::data(0, f),                             // 6: Data cell (gate switch) ← adjacent to GATE
+        Cell::code(Instruction::Gate, f),             // 7: GATE — reads Data cell[6], if 0 skip next
+        Cell::code(Instruction::Divide, f),           // 8: DIVIDE (only if Data > 0 = energy improved)
+        // Maintenance
+        Cell::code(Instruction::Refresh, f),          // 9: refresh
+        Cell::code(Instruction::Jmp(-9), f),          // 10: loop back to 0
+        // Resources
+        Cell::stomach(0, f),
+        Cell::stomach(0, f),
+        Cell::energy(cem, f),
+        Cell::energy(cem, f),
     ];
     CellOrganism::new(cells)
 }
@@ -1167,5 +1251,79 @@ mod tests {
             "Seed D should have at least one Data cell");
         assert!(org.code_count() >= 9,
             "Seed D should have enough code cells for its logic");
+    }
+
+    #[test]
+    fn test_gate_blocks_when_data_zero() {
+        let mut config = CellConfig::experimental();
+        config.data_cell_gating = true;
+        let mut world = CellWorld::new(config.clone(), 42);
+        // [GATE] [Data(0)] [INC r1] [EAT] [JMP -3] + energy
+        let cells = vec![
+            Cell::code(Instruction::Gate, 255),
+            Cell::data(0, 255), // Data=0 → GATE should skip next code
+            Cell::code(Instruction::Inc(1), 255), // This should be SKIPPED
+            Cell::code(Instruction::Eat, 255),
+            Cell::code(Instruction::Jmp(-4), 255),
+            Cell::energy(50, 255),
+        ];
+        world.food_pool = 10000;
+        world.add_organism(CellOrganism::new(cells));
+        for _ in 0..10 { world.tick(); }
+        let org = &world.organisms[0];
+        // r1 should be 0 because INC was gated (skipped)
+        assert_eq!(org.registers[1], 0, "INC should be skipped when Data=0 gates it");
+    }
+
+    #[test]
+    fn test_gate_allows_when_data_nonzero() {
+        let mut config = CellConfig::experimental();
+        config.data_cell_gating = true;
+        let mut world = CellWorld::new(config.clone(), 42);
+        // [GATE] [Data(5)] [INC r1] [EAT] [JMP -3] + energy
+        let cells = vec![
+            Cell::code(Instruction::Gate, 255),
+            Cell::data(5, 255), // Data=5 → GATE should NOT skip
+            Cell::code(Instruction::Inc(1), 255), // This should execute
+            Cell::code(Instruction::Eat, 255),
+            Cell::code(Instruction::Jmp(-4), 255),
+            Cell::energy(50, 255),
+        ];
+        world.food_pool = 10000;
+        world.add_organism(CellOrganism::new(cells));
+        for _ in 0..10 { world.tick(); }
+        let org = &world.organisms[0];
+        assert!(org.registers[1] > 0, "INC should execute when Data>0");
+    }
+
+    #[test]
+    fn test_gate_nop_when_disabled() {
+        let mut config = CellConfig::experimental();
+        config.data_cell_gating = false; // disabled
+        let mut world = CellWorld::new(config.clone(), 42);
+        let cells = vec![
+            Cell::code(Instruction::Gate, 255),
+            Cell::data(0, 255),
+            Cell::code(Instruction::Inc(1), 255),
+            Cell::code(Instruction::Eat, 255),
+            Cell::code(Instruction::Jmp(-4), 255),
+            Cell::energy(50, 255),
+        ];
+        world.food_pool = 10000;
+        world.add_organism(CellOrganism::new(cells));
+        for _ in 0..10 { world.tick(); }
+        let org = &world.organisms[0];
+        // Gate disabled → acts as NOP → INC should execute
+        assert!(org.registers[1] > 0, "INC should execute when gating is disabled");
+    }
+
+    #[test]
+    fn test_seed_g_structure() {
+        let config = CellConfig::experimental();
+        let org = cell_seed_g(&config);
+        assert!(org.cells.iter().any(|c| c.is_data()), "Seed G has Data cell");
+        assert!(org.cells.iter().any(|c| matches!(c.content, CellType::Code(Instruction::Gate))),
+            "Seed G has GATE instruction");
+        assert!(org.code_count() >= 9, "Seed G has enough code");
     }
 }

@@ -19,7 +19,7 @@ use std::fs;
 use std::io::Write as IoWrite;
 use organism::Config;
 use experiment::{run_experiment, analyze_and_report, compute_steady_state, SteadyState};
-use cell_vm::{CellConfig, CellWorld, CellOrganism, cell_seed_a, cell_seed_b, cell_seed_f, cell_compute_steady_state, run_cell_experiment, run_cell_data_experiment, run_cell_growth_experiment};
+use cell_vm::{CellConfig, CellWorld, cell_seed_a, cell_seed_b, cell_seed_f, cell_seed_g, cell_compute_steady_state, run_cell_experiment, run_cell_data_experiment, run_cell_growth_experiment};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -70,6 +70,12 @@ fn main() {
     // EXP-012 history impact: cargo run -- --exp012
     if args.iter().any(|a| a == "--exp012") {
         run_exp012();
+        return;
+    }
+
+    // EXP-014 GATE learning: cargo run -- --exp014
+    if args.iter().any(|a| a == "--exp014") {
+        run_exp014();
         return;
     }
 
@@ -1127,5 +1133,141 @@ fn run_exp012() {
     }
 
     eprintln!("\nResults: docs/experiments/EXP-012-history-impact/experiment.md");
+    println!("{}", report);
+}
+
+// ============================================================================
+// EXP-014: GATE learning (Data cell as gene regulation switch)
+// ============================================================================
+
+fn run_gate_trial(seed: u64, abundant_first: bool) -> cell_vm::CellSteadyState {
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.total_ticks = 1_000_000; // 1M ticks for longer evolution
+    config.max_organisms = 200;
+    config.data_cell_gating = true; // Enable GATE instruction
+    config.snapshot_interval = 1000;
+    config.genome_dump_interval = 0;
+
+    if abundant_first {
+        config.food_per_tick = 500;
+    } else {
+        config.food_per_tick = 50;
+    }
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..20 { world.add_organism(cell_seed_g(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+
+    let switch_tick: u64 = 10_000;
+
+    for t in 0..config.total_ticks {
+        if abundant_first && t == switch_tick {
+            world.config.food_per_tick = 50;
+        }
+        world.tick();
+    }
+
+    world.take_snapshot();
+    cell_compute_steady_state(&world.snapshots)
+}
+
+fn run_exp014() {
+    use rayon::prelude::*;
+
+    eprintln!("EXP-014: GATE Learning (Data Cell Gene Regulation)");
+    eprintln!("===================================================");
+    eprintln!("  GATE instruction + Seed G (evaluation + gated DIVIDE)");
+    eprintln!("  Group 1: abundant→scarce, Group 2: always scarce, 1M ticks\n");
+
+    let seeds: Vec<u64> = (400..410).collect();
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-014-gate-learning/data");
+
+    eprintln!("Running Group 1 (abundant→scarce)...");
+    let g1: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| run_gate_trial(s, true)).collect();
+
+    eprintln!("Running Group 2 (always scarce)...");
+    let g2: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| run_gate_trial(s, false)).collect();
+
+    let g1_eat: Vec<f64> = g1.iter().map(|r| r.eat_ratio).collect();
+    let g2_eat: Vec<f64> = g2.iter().map(|r| r.eat_ratio).collect();
+    let g1_ref: Vec<f64> = g1.iter().map(|r| r.refresh_ratio).collect();
+    let g2_ref: Vec<f64> = g2.iter().map(|r| r.refresh_ratio).collect();
+    let g1_div: Vec<f64> = g1.iter().map(|r| r.divide_ratio).collect();
+    let g2_div: Vec<f64> = g2.iter().map(|r| r.divide_ratio).collect();
+
+    let comp_eat = stats::compare_groups("EAT", &g1_eat, &g2_eat);
+    let comp_ref = stats::compare_groups("REFRESH", &g1_ref, &g2_ref);
+    let comp_div = stats::compare_groups("DIVIDE", &g1_div, &g2_div);
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let surv = |r: &[cell_vm::CellSteadyState]| r.iter().filter(|x| x.survived).count();
+
+    let mut report = String::new();
+    report.push_str("# EXP-014: GATE Learning (Data Cell Gene Regulation)\n\n");
+    report.push_str("## Design\n\n");
+    report.push_str("- GATE instruction: reads adjacent Data cell, if value==0 skips next Code cell\n");
+    report.push_str("- Seed G: evaluation module (SENSE→EAT→SENSE→CMP→STORE) + GATE→DIVIDE\n");
+    report.push_str("- Only divides when Data cell > 0 (= energy improved after eating)\n");
+    report.push_str("- Group 1: abundant (500) first 10k ticks, then scarce (50)\n");
+    report.push_str("- Group 2: always scarce (50)\n");
+    report.push_str("- 1M ticks, 10 seeds, CEM=50, data_cell_gating=true\n\n");
+
+    report.push_str("## Results\n\n");
+    report.push_str("| Group | Survived | Avg Pop | Avg Energy | EAT% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|-------|----------|---------|-----------|------|----------|--------|\n");
+
+    let g1_energy: Vec<f64> = g1.iter().map(|r| r.avg_energy).collect();
+    let g2_energy: Vec<f64> = g2.iter().map(|r| r.avg_energy).collect();
+    let g1_pop: Vec<f64> = g1.iter().map(|r| r.avg_population).collect();
+    let g2_pop: Vec<f64> = g2.iter().map(|r| r.avg_population).collect();
+
+    report.push_str(&format!(
+        "| Abundant→Scarce | {}/10 | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+        surv(&g1), avg(&g1_pop), avg(&g1_energy),
+        avg(&g1_eat)*100.0, avg(&g1_ref)*100.0, avg(&g1_div)*100.0,
+    ));
+    report.push_str(&format!(
+        "| Always Scarce | {}/10 | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+        surv(&g2), avg(&g2_pop), avg(&g2_energy),
+        avg(&g2_eat)*100.0, avg(&g2_ref)*100.0, avg(&g2_div)*100.0,
+    ));
+
+    report.push_str("\n## Statistical Tests\n\n");
+    report.push_str("| Metric | Diff | 95% CI | MW p | d |\n");
+    report.push_str("|--------|------|--------|------|---|\n");
+    for c in [&comp_eat, &comp_ref, &comp_div] {
+        report.push_str(&format!(
+            "| {} | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.3} |\n",
+            c.metric_name, c.mean_diff, c.ci_lower, c.ci_upper, c.p_value, c.cohens_d,
+        ));
+    }
+
+    if comp_eat.p_value < 0.05 || comp_div.p_value < 0.05 {
+        report.push_str("\n## Conclusion\n\nGATE mechanism produces measurable behavioral difference between history groups.\n");
+    } else {
+        report.push_str("\n## Conclusion\n\nGATE mechanism does not yet produce significant history-dependent behavior at this scale.\n");
+    }
+
+    report.push_str("\n---\n*EXP-014: GATE learning experiment*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-014-gate-learning";
+    fs::write(format!("{}/experiment.md", dir), &report).expect("write");
+
+    let mut csv = fs::File::create(format!("{}/data/per_seed.csv", dir)).expect("csv");
+    writeln!(csv, "group,seed,survived,pop,energy,eat,refresh,divide").unwrap();
+    for (i, &seed) in seeds.iter().enumerate() {
+        let r = &g1[i];
+        writeln!(csv, "abundant_scarce,{},{},{:.2},{:.2},{:.6},{:.6},{:.6}",
+            seed, r.survived, r.avg_population, r.avg_energy, r.eat_ratio, r.refresh_ratio, r.divide_ratio).unwrap();
+        let r = &g2[i];
+        writeln!(csv, "always_scarce,{},{},{:.2},{:.2},{:.6},{:.6},{:.6}",
+            seed, r.survived, r.avg_population, r.avg_energy, r.eat_ratio, r.refresh_ratio, r.divide_ratio).unwrap();
+    }
+
+    eprintln!("\nResults: docs/experiments/EXP-014-gate-learning/experiment.md");
     println!("{}", report);
 }

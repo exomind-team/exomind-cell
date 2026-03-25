@@ -23,11 +23,12 @@ pub enum Instruction {
     Divide,         // 0x0B: Self-replicate with mutation
     Emit(u8),       // 0x0C: Write R0 to medium[operand] (stigmergy signal)
     Sample(u8),     // 0x0D: Read medium[operand] into R0 (sense environment)
+    Gate,           // 0x0E: Read adjacent Data cell; if value==0, skip next Code cell
 }
 
 impl Instruction {
     /// Total number of instruction variants (for random generation/mutation).
-    pub const VARIANT_COUNT: usize = 14;
+    pub const VARIANT_COUNT: usize = 15;
 
     /// Generate a random instruction.
     pub fn random(rng: &mut impl Rng) -> Self {
@@ -52,6 +53,7 @@ impl Instruction {
             11 => Instruction::Divide,
             12 => Instruction::Emit(rng.gen_range(0..=255)),
             13 => Instruction::Sample(rng.gen_range(0..=255)),
+            14 => Instruction::Gate,
             _ => Instruction::Nop,
         }
     }
@@ -84,6 +86,7 @@ impl fmt::Display for Instruction {
             Instruction::Divide => write!(f, "DIVIDE"),
             Instruction::Emit(ch) => write!(f, "EMIT {}", ch),
             Instruction::Sample(ch) => write!(f, "SAMPLE {}", ch),
+            Instruction::Gate => write!(f, "GATE"),
         }
     }
 }
