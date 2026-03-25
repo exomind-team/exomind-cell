@@ -89,6 +89,12 @@ fn main() {
         return;
     }
 
+    // EXP-015a feast/famine cycling: cargo run -- --exp015a
+    if args.iter().any(|a| a == "--exp015a") {
+        run_exp015a();
+        return;
+    }
+
     // EXP-001~003 100-round replication: cargo run --release -- --replicate001
     if args.iter().any(|a| a == "--replicate001") {
         run_replication_exp001_003();
@@ -2058,5 +2064,162 @@ fn run_replication_exp011() {
     }
 
     eprintln!("\nResults: docs/experiments/EXP-011-replication/replication_100rounds.md");
+    println!("{}", report);
+}
+
+// ============================================================================
+// EXP-015a: Feast/Famine Cycling + GATE
+// ============================================================================
+
+fn run_cycle_trial(seed: u64, cycling: bool) -> cell_vm::CellSteadyState {
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.total_ticks = 1_000_000;
+    config.max_organisms = 200;
+    config.data_cell_gating = true;
+    config.snapshot_interval = 1000;
+    config.genome_dump_interval = 0;
+
+    // Cycling group: start at feast level; constant group: fixed average
+    if cycling {
+        config.food_per_tick = 500; // will be modulated in loop
+    } else {
+        config.food_per_tick = 275; // (500+50)/2
+    }
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..20 { world.add_organism(cell_seed_g(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+
+    let cycle_period: u64 = 20_000; // 10k feast + 10k famine
+
+    for t in 0..config.total_ticks {
+        if cycling {
+            let phase = t % cycle_period;
+            world.config.food_per_tick = if phase < cycle_period / 2 { 500 } else { 50 };
+        }
+        world.tick();
+    }
+
+    world.take_snapshot();
+    cell_compute_steady_state(&world.snapshots)
+}
+
+fn run_exp015a() {
+    use rayon::prelude::*;
+
+    let num_rounds = 100;
+    let seeds_per_round = 10;
+
+    eprintln!("EXP-015a: Feast/Famine Cycling + GATE");
+    eprintln!("=====================================");
+    eprintln!("  {} rounds x {} seeds, 1M ticks, cycle=20k (10k feast/10k famine)\n", num_rounds, seeds_per_round);
+
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-015a-feast-famine-cycle/data");
+
+    struct RoundResult015 {
+        round: usize,
+        refresh_diff: f64,
+        eat_diff: f64,
+        pop_diff: f64,
+        refresh_p: f64,
+        refresh_d: f64,
+    }
+
+    let rounds: Vec<usize> = (0..num_rounds).collect();
+    let results: Vec<RoundResult015> = rounds.par_iter().map(|&round| {
+        let base_seed = (round as u64) * 1000 + 8000;
+        let seeds: Vec<u64> = (base_seed..base_seed + seeds_per_round as u64).collect();
+
+        let cycling: Vec<cell_vm::CellSteadyState> = seeds.iter()
+            .map(|&s| run_cycle_trial(s, true)).collect();
+        let constant: Vec<cell_vm::CellSteadyState> = seeds.iter()
+            .map(|&s| run_cycle_trial(s, false)).collect();
+
+        let c_ref: Vec<f64> = cycling.iter().map(|r| r.refresh_ratio).collect();
+        let k_ref: Vec<f64> = constant.iter().map(|r| r.refresh_ratio).collect();
+        let c_eat: Vec<f64> = cycling.iter().map(|r| r.eat_ratio).collect();
+        let k_eat: Vec<f64> = constant.iter().map(|r| r.eat_ratio).collect();
+        let c_pop: Vec<f64> = cycling.iter().map(|r| r.avg_population).collect();
+        let k_pop: Vec<f64> = constant.iter().map(|r| r.avg_population).collect();
+
+        let comp = stats::compare_groups("REF", &c_ref, &k_ref);
+        let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+
+        if round % 10 == 0 { eprintln!("  Round {}/{}", round + 1, num_rounds); }
+
+        RoundResult015 {
+            round,
+            refresh_diff: avg(&c_ref) - avg(&k_ref),
+            eat_diff: avg(&c_eat) - avg(&k_eat),
+            pop_diff: avg(&c_pop) - avg(&k_pop),
+            refresh_p: comp.p_value,
+            refresh_d: comp.cohens_d,
+        }
+    }).collect();
+
+    // Meta-analysis
+    let ref_positive = results.iter().filter(|r| r.refresh_diff > 0.0).count();
+    let ref_sig = results.iter().filter(|r| r.refresh_p < 0.05 && r.refresh_diff > 0.0).count();
+    let pop_diff_neg = results.iter().filter(|r| r.pop_diff < 0.0).count();
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let sd = |v: &[f64]| {
+        let m = avg(v);
+        (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (v.len() - 1) as f64).sqrt()
+    };
+
+    let all_ref_d: Vec<f64> = results.iter().map(|r| r.refresh_diff).collect();
+    let all_d: Vec<f64> = results.iter().map(|r| r.refresh_d).collect();
+
+    let mut report = String::new();
+    report.push_str("# EXP-015a: Feast/Famine Cycling + GATE — 100 Independent Rounds\n\n");
+    report.push_str("## Frozen Parameters\n\n");
+    report.push_str("- GATE=true, CEM=50, max=200, 20G+10A+10B\n");
+    report.push_str("- Cycling: 500 food (feast, 10k ticks) → 50 food (famine, 10k ticks), repeat\n");
+    report.push_str("- Constant: 275 food/tick (average of feast+famine)\n");
+    report.push_str("- 1M ticks, 100 rounds x 10 seeds/round\n\n");
+
+    report.push_str("## Meta-Analysis\n\n");
+    report.push_str("| Metric | Direction win | p<0.05 win | Mean diff | SD | Win rate |\n");
+    report.push_str("|--------|-------------|-----------|-----------|-----|----------|\n");
+    report.push_str(&format!(
+        "| REFRESH (cycle > const) | {}/{} | {}/{} | {:.4} | {:.4} | {:.0}% |\n",
+        ref_positive, num_rounds, ref_sig, num_rounds,
+        avg(&all_ref_d), sd(&all_ref_d), ref_positive as f64 / num_rounds as f64 * 100.0,
+    ));
+    report.push_str(&format!(
+        "| Population (cycle < const) | {}/{} | — | — | — | {:.0}% |\n",
+        pop_diff_neg, num_rounds, pop_diff_neg as f64 / num_rounds as f64 * 100.0,
+    ));
+
+    report.push_str(&format!("\nMean Cohen's d: {:.3}, SD: {:.3}\n", avg(&all_d), sd(&all_d)));
+    report.push_str(&format!("Positive d: {}/{} ({:.0}%)\n", results.iter().filter(|r| r.refresh_d > 0.0).count(), num_rounds,
+        results.iter().filter(|r| r.refresh_d > 0.0).count() as f64 / num_rounds as f64 * 100.0));
+
+    report.push_str("\n## Conclusion\n\n");
+    if ref_positive > 60 {
+        report.push_str(&format!(
+            "Feast/famine cycling produces measurable behavioral differentiation:\n\
+            REFRESH in predicted direction in {}% of rounds, p<0.05 in {}%.\n",
+            ref_positive, ref_sig));
+    } else {
+        report.push_str("Feast/famine cycling does not consistently produce REFRESH differentiation.\n");
+    }
+
+    report.push_str("\n---\n*EXP-015a: Feast/famine cycling with GATE*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-015a-feast-famine-cycle";
+    fs::write(format!("{}/experiment.md", dir), &report).expect("write");
+
+    let mut csv = fs::File::create(format!("{}/data/per_round.csv", dir)).expect("csv");
+    writeln!(csv, "round,refresh_diff,eat_diff,pop_diff,refresh_p,refresh_d").unwrap();
+    for r in &results {
+        writeln!(csv, "{},{:.6},{:.6},{:.2},{:.6},{:.4}",
+            r.round, r.refresh_diff, r.eat_diff, r.pop_diff, r.refresh_p, r.refresh_d).unwrap();
+    }
+
+    eprintln!("\nResults: {}/experiment.md", dir);
     println!("{}", report);
 }
