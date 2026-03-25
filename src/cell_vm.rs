@@ -189,6 +189,11 @@ pub struct CellConfig {
     pub refresh_radius: usize,   // REFRESH covers ip-R to ip+R
     pub instruction_cost: u8,    // energy per instruction
     pub divide_cost: u8,         // extra energy for DIVIDE
+    pub multi_food: bool,         // Enable simple/complex food types
+    pub simple_food_energy: u8,   // Energy from simple food (default 5)
+    pub complex_food_energy: u8,  // Energy from complex food (default 20, needs 2x DIGEST)
+    pub simple_food_rate: i32,    // Simple food per tick
+    pub complex_food_rate: i32,   // Complex food per tick
     pub total_ticks: u64,
     pub snapshot_interval: u64,
     pub genome_dump_interval: u64,
@@ -206,6 +211,11 @@ impl CellConfig {
             refresh_radius: 5,       // covers ip-5 to ip+5 = 11 cells (enough for small organisms)
             instruction_cost: 1,
             divide_cost: 5,
+            multi_food: false,
+            simple_food_energy: 5,
+            complex_food_energy: 20,
+            simple_food_rate: 30,
+            complex_food_rate: 10,
             total_ticks: 500_000,
             snapshot_interval: 1000,
             genome_dump_interval: 50_000,
@@ -264,6 +274,8 @@ impl CellSnapshot {
 pub struct CellWorld {
     pub organisms: Vec<CellOrganism>,
     pub food_pool: i32,
+    pub simple_food: i32,   // Simple food pool (low energy, instant)
+    pub complex_food: i32,  // Complex food pool (high energy, needs extra DIGEST)
     pub tick: u64,
     pub config: CellConfig,
     pub rng: StdRng,
@@ -271,6 +283,8 @@ pub struct CellWorld {
 
     // Interval counters
     interval_eat: u64,
+    interval_eat_simple: u64,
+    interval_eat_complex: u64,
     interval_digest: u64,
     interval_refresh: u64,
     interval_divide: u64,
@@ -282,11 +296,15 @@ impl CellWorld {
         CellWorld {
             organisms: Vec::new(),
             food_pool: 500,
+            simple_food: 0,
+            complex_food: 0,
             tick: 0,
             config,
             rng: StdRng::seed_from_u64(seed),
             snapshots: Vec::new(),
             interval_eat: 0,
+            interval_eat_simple: 0,
+            interval_eat_complex: 0,
             interval_digest: 0,
             interval_refresh: 0,
             interval_divide: 0,
@@ -330,6 +348,8 @@ impl CellWorld {
         }
 
         self.interval_eat = 0;
+        self.interval_eat_simple = 0;
+        self.interval_eat_complex = 0;
         self.interval_digest = 0;
         self.interval_refresh = 0;
         self.interval_divide = 0;
@@ -409,15 +429,54 @@ impl CellWorld {
             Instruction::Eat => {
                 org.eat_count += 1;
                 self.interval_eat += 1;
-                // Food pool -> first available Stomach cell
                 let cem = config.cell_energy_max;
-                if self.food_pool > 0 {
-                    if let Some(stomach) = org.first_empty_stomach(cem) {
-                        if let CellType::Stomach(ref mut s) = stomach.content {
-                            let space = cem - *s;
-                            let take = (self.food_pool as u8).min(space);
-                            *s += take;
-                            self.food_pool -= take as i32;
+
+                if config.multi_food {
+                    // Multi-food mode: randomly pick simple or complex
+                    let has_simple = self.simple_food > 0;
+                    let has_complex = self.complex_food > 0;
+                    let pick_simple = if has_simple && has_complex {
+                        self.rng.gen_bool(0.5) // 50/50 random pick
+                    } else {
+                        has_simple
+                    };
+
+                    if pick_simple && self.simple_food > 0 {
+                        // Simple food: directly into stomach with simple_food_energy
+                        self.interval_eat_simple += 1;
+                        if let Some(stomach) = org.first_empty_stomach(cem) {
+                            if let CellType::Stomach(ref mut s) = stomach.content {
+                                let energy = config.simple_food_energy;
+                                let space = cem - *s;
+                                let take = energy.min(space);
+                                *s += take;
+                                self.simple_food -= 1;
+                            }
+                        }
+                    } else if self.complex_food > 0 {
+                        // Complex food: goes into stomach but marked as "thick shell"
+                        // Represented as negative value convention: value > 100 means complex
+                        self.interval_eat_complex += 1;
+                        if let Some(stomach) = org.first_empty_stomach(cem) {
+                            if let CellType::Stomach(ref mut s) = stomach.content {
+                                // Store complex food energy (will need 2x DIGEST)
+                                let energy = config.complex_food_energy;
+                                let space = cem - *s;
+                                *s += energy.min(space);
+                                self.complex_food -= 1;
+                            }
+                        }
+                    }
+                } else {
+                    // Original single-food mode
+                    if self.food_pool > 0 {
+                        if let Some(stomach) = org.first_empty_stomach(cem) {
+                            if let CellType::Stomach(ref mut s) = stomach.content {
+                                let space = cem - *s;
+                                let take = (self.food_pool as u8).min(space);
+                                *s += take;
+                                self.food_pool -= take as i32;
+                            }
                         }
                     }
                 }
@@ -581,7 +640,12 @@ impl CellWorld {
     }
 
     pub fn tick(&mut self) {
-        self.food_pool += self.config.food_per_tick;
+        if self.config.multi_food {
+            self.simple_food += self.config.simple_food_rate;
+            self.complex_food += self.config.complex_food_rate;
+        } else {
+            self.food_pool += self.config.food_per_tick;
+        }
 
         let n = self.organisms.len();
         let mut new_organisms: Vec<CellOrganism> = Vec::new();
