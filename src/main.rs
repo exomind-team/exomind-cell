@@ -97,6 +97,12 @@ fn main() {
         return;
     }
 
+    // Optimized GATE history: cargo run -- --opt-gate
+    if args.iter().any(|a| a == "--opt-gate") {
+        run_opt_gate();
+        return;
+    }
+
     // GATE x Parameter cross experiment: cargo run -- --exp-cross
     if args.iter().any(|a| a == "--exp-cross") {
         run_exp_cross();
@@ -2499,4 +2505,116 @@ fn run_knockout_analysis() {
     fs::write(format!("{}/data/knockout.csv", dir), &all_csv).expect("write");
     eprintln!("\nResults: {}/knockout_analysis.md", dir);
     println!("{}", full_report);
+}
+
+// ============================================================================
+// Optimized params + GATE history experiment (Paper I final blocker)
+// ============================================================================
+
+fn run_opt_gate_trial(seed: u64, abundant_first: bool) -> cell_vm::CellSteadyState {
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.max_organisms = 1000;
+    config.total_ticks = 2_000_000;
+    config.data_cell_gating = true;
+    config.snapshot_interval = 10_000;
+    config.genome_dump_interval = 0;
+
+    if abundant_first {
+        config.food_per_tick = 500; // abundant first 500k, then scarce
+    } else {
+        config.food_per_tick = 50; // always scarce
+    }
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..20 { world.add_organism(cell_seed_g(&config)); }
+    for _ in 0..30 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..30 { world.add_organism(cell_seed_b(&config)); }
+
+    let switch_tick: u64 = 500_000; // switch at 500k (25% of 2M)
+
+    for t in 0..config.total_ticks {
+        if abundant_first && t == switch_tick {
+            world.config.food_per_tick = 50;
+        }
+        world.tick();
+    }
+
+    world.take_snapshot();
+    cell_compute_steady_state(&world.snapshots)
+}
+
+fn run_opt_gate() {
+    use rayon::prelude::*;
+
+    eprintln!("Optimized GATE History Experiment (Paper I final)");
+    eprintln!("=================================================");
+    eprintln!("  CEM=50, food=500→50 at 500k, max=1000, 20G+30A+30B");
+    eprintln!("  100 seeds, 2M ticks, --threads limited\n");
+
+    let seeds: Vec<u64> = (9000..9100).collect();
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-OPT-GATE/data");
+
+    eprintln!("Running abundant→scarce...");
+    let exp: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| { if s % 20 == 0 { eprintln!("  seed {}...", s); } run_opt_gate_trial(s, true) }).collect();
+
+    eprintln!("Running always scarce...");
+    let ctrl: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| { if s % 20 == 0 { eprintln!("  seed {}...", s); } run_opt_gate_trial(s, false) }).collect();
+
+    let exp_ref: Vec<f64> = exp.iter().map(|r| r.refresh_ratio).collect();
+    let ctrl_ref: Vec<f64> = ctrl.iter().map(|r| r.refresh_ratio).collect();
+    let exp_pop: Vec<f64> = exp.iter().map(|r| r.avg_population).collect();
+    let ctrl_pop: Vec<f64> = ctrl.iter().map(|r| r.avg_population).collect();
+
+    let comp_ref = stats::compare_groups("REFRESH", &exp_ref, &ctrl_ref);
+    let comp_pop = stats::compare_groups("Population", &exp_pop, &ctrl_pop);
+
+    let ref_positive = exp_ref.iter().zip(ctrl_ref.iter()).filter(|(e, c)| e > c).count();
+    let pop_neg = exp_pop.iter().zip(ctrl_pop.iter()).filter(|(e, c)| e < c).count();
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let surv_exp = exp.iter().filter(|r| r.survived).count();
+    let surv_ctrl = ctrl.iter().filter(|r| r.survived).count();
+
+    let mut report = String::new();
+    report.push_str("# Optimized GATE History Experiment\n\n");
+    report.push_str("## Parameters (frozen)\n\n");
+    report.push_str("- CEM=50, max=1000, 20G+30A+30B, 2M ticks\n");
+    report.push_str("- Exp: food=500 first 500k ticks → food=50\n");
+    report.push_str("- Ctrl: food=50 throughout\n");
+    report.push_str("- GATE=true, 100 seeds\n\n");
+
+    report.push_str("## Results\n\n");
+    report.push_str(&format!("Survived: Exp {}/100, Ctrl {}/100\n\n", surv_exp, surv_ctrl));
+    report.push_str("| Group | Avg Pop | Avg Energy | REFRESH% |\n");
+    report.push_str("|-------|---------|-----------|----------|\n");
+    report.push_str(&format!("| Abundant→Scarce | {:.1} | {:.1} | {:.1} |\n",
+        avg(&exp_pop), avg(&exp.iter().map(|r| r.avg_energy).collect::<Vec<_>>()), avg(&exp_ref)*100.0));
+    report.push_str(&format!("| Always Scarce | {:.1} | {:.1} | {:.1} |\n",
+        avg(&ctrl_pop), avg(&ctrl.iter().map(|r| r.avg_energy).collect::<Vec<_>>()), avg(&ctrl_ref)*100.0));
+
+    report.push_str("\n## Statistical Tests\n\n");
+    report.push_str(&format!("- REFRESH: p={:.4}, d={:.3}, direction win {}/100 ({:.0}%)\n",
+        comp_ref.p_value, comp_ref.cohens_d, ref_positive, ref_positive as f64));
+    report.push_str(&format!("- Population: p={:.4}, d={:.3}, direction win {}/100\n",
+        comp_pop.p_value, comp_pop.cohens_d, pop_neg));
+
+    report.push_str("\n---\n*Optimized GATE history: Paper I final experiment*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-OPT-GATE";
+    fs::write(format!("{}/experiment.md", dir), &report).expect("write");
+
+    let mut csv = fs::File::create(format!("{}/data/per_seed.csv", dir)).expect("csv");
+    writeln!(csv, "seed,group,survived,pop,energy,refresh,eat,divide").unwrap();
+    for (i, &seed) in seeds.iter().enumerate() {
+        let r = &exp[i]; writeln!(csv, "{},exp,{},{:.2},{:.2},{:.6},{:.6},{:.6}",
+            seed, r.survived, r.avg_population, r.avg_energy, r.refresh_ratio, r.eat_ratio, r.divide_ratio).unwrap();
+        let r = &ctrl[i]; writeln!(csv, "{},ctrl,{},{:.2},{:.2},{:.6},{:.6},{:.6}",
+            seed, r.survived, r.avg_population, r.avg_energy, r.refresh_ratio, r.eat_ratio, r.divide_ratio).unwrap();
+    }
+
+    eprintln!("\nResults: {}/experiment.md", dir);
+    println!("{}", report);
 }
