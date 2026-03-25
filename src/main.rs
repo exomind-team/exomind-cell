@@ -67,6 +67,12 @@ fn main() {
         return;
     }
 
+    // EXP-012 history impact: cargo run -- --exp012
+    if args.iter().any(|a| a == "--exp012") {
+        run_exp012();
+        return;
+    }
+
     // Real CPU mode: cargo run -- --real-cpu
     if args.iter().any(|a| a == "--real-cpu") {
         run_realcpu_experiment();
@@ -979,5 +985,147 @@ fn run_exp011() {
     }
 
     eprintln!("\nResults: data/experiments/EXP-011/results.md");
+    println!("{}", report);
+}
+
+// ============================================================================
+// EXP-012: History Impact (D2 experience learning)
+// ============================================================================
+
+fn run_history_trial(seed: u64, abundant_first: bool) -> cell_vm::CellSteadyState {
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.total_ticks = 500_000;
+    config.max_organisms = 200;
+    config.medium_size = 256;
+    config.snapshot_interval = 1000;
+    config.genome_dump_interval = 0;
+
+    // Start with appropriate food level
+    if abundant_first {
+        config.food_per_tick = 500; // abundant phase
+    } else {
+        config.food_per_tick = 50; // scarce from start
+    }
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    // Use Seed F (has Data cell for experience storage)
+    for _ in 0..20 { world.add_organism(cell_seed_f(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+
+    let switch_tick: u64 = 10_000; // switch at tick 10k
+
+    for t in 0..config.total_ticks {
+        // Switch food at tick 10k for abundant_first group
+        if abundant_first && t == switch_tick {
+            world.config.food_per_tick = 50; // switch to scarce
+        }
+        world.tick();
+    }
+
+    world.take_snapshot();
+    cell_compute_steady_state(&world.snapshots)
+}
+
+fn run_exp012() {
+    use rayon::prelude::*;
+
+    eprintln!("EXP-012: History Impact (D2 Experience Learning)");
+    eprintln!("================================================");
+    eprintln!("  Group 1: abundant→scarce (500→50 at tick 10k)");
+    eprintln!("  Group 2: always scarce (50)\n");
+
+    let seeds: Vec<u64> = (300..310).collect(); // 10 seeds
+
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-012-history-impact/data");
+
+    eprintln!("Running Group 1 (abundant→scarce)...");
+    let g1_results: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&seed| run_history_trial(seed, true))
+        .collect();
+
+    eprintln!("Running Group 2 (always scarce)...");
+    let g2_results: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&seed| run_history_trial(seed, false))
+        .collect();
+
+    // Extract metrics
+    let g1_eat: Vec<f64> = g1_results.iter().map(|r| r.eat_ratio).collect();
+    let g2_eat: Vec<f64> = g2_results.iter().map(|r| r.eat_ratio).collect();
+    let g1_refresh: Vec<f64> = g1_results.iter().map(|r| r.refresh_ratio).collect();
+    let g2_refresh: Vec<f64> = g2_results.iter().map(|r| r.refresh_ratio).collect();
+    let g1_divide: Vec<f64> = g1_results.iter().map(|r| r.divide_ratio).collect();
+    let g2_divide: Vec<f64> = g2_results.iter().map(|r| r.divide_ratio).collect();
+    let g1_pop: Vec<f64> = g1_results.iter().map(|r| r.avg_population).collect();
+    let g2_pop: Vec<f64> = g2_results.iter().map(|r| r.avg_population).collect();
+
+    let comp_eat = stats::compare_groups("EAT", &g1_eat, &g2_eat);
+    let comp_refresh = stats::compare_groups("REFRESH", &g1_refresh, &g2_refresh);
+    let comp_divide = stats::compare_groups("DIVIDE", &g1_divide, &g2_divide);
+    let comp_pop = stats::compare_groups("Population", &g1_pop, &g2_pop);
+
+    let mut report = String::new();
+    report.push_str("# EXP-012: History Impact (D2 Experience Learning)\n\n");
+    report.push_str("## Design\n\n");
+    report.push_str("- Group 1: abundant food (500/tick) for first 10k ticks, then scarce (50/tick)\n");
+    report.push_str("- Group 2: scarce food (50/tick) from start\n");
+    report.push_str("- Same genomes (Seed F with Data cell), same seeds\n");
+    report.push_str("- If history matters: Group 1 behavior differs from Group 2 after switch\n\n");
+
+    report.push_str("## Results (10 seeds per group)\n\n");
+    report.push_str("| Group | Survived | Avg Pop | Avg Energy | EAT% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|-------|----------|---------|-----------|------|----------|--------|\n");
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let surv = |r: &[cell_vm::CellSteadyState]| r.iter().filter(|x| x.survived).count();
+
+    report.push_str(&format!(
+        "| Abundant→Scarce | {}/10 | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+        surv(&g1_results), avg(&g1_pop), avg(&g1_results.iter().map(|r| r.avg_energy).collect::<Vec<_>>()),
+        avg(&g1_eat) * 100.0, avg(&g1_refresh) * 100.0, avg(&g1_divide) * 100.0,
+    ));
+    report.push_str(&format!(
+        "| Always Scarce | {}/10 | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+        surv(&g2_results), avg(&g2_pop), avg(&g2_results.iter().map(|r| r.avg_energy).collect::<Vec<_>>()),
+        avg(&g2_eat) * 100.0, avg(&g2_refresh) * 100.0, avg(&g2_divide) * 100.0,
+    ));
+
+    report.push_str("\n## Statistical Tests\n\n");
+    report.push_str("| Metric | Diff | 95% CI | MW p | d | KS D | KS p |\n");
+    report.push_str("|--------|------|--------|------|---|------|------|\n");
+    for c in [&comp_eat, &comp_refresh, &comp_divide, &comp_pop] {
+        report.push_str(&format!(
+            "| {} | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.3} | {:.3} | {:.4} |\n",
+            c.metric_name, c.mean_diff, c.ci_lower, c.ci_upper,
+            c.p_value, c.cohens_d, c.ks_d, c.ks_p,
+        ));
+    }
+
+    report.push_str("\n## Conclusion\n\n");
+    if comp_eat.p_value < 0.05 || comp_refresh.p_value < 0.05 {
+        report.push_str("History DOES affect behavior — organisms with abundant-then-scarce experience behave differently from always-scarce organisms.\n");
+    } else {
+        report.push_str("History does NOT measurably affect behavior in current design — Data cell contents do not significantly influence evolved strategies at this scale.\n");
+    }
+
+    report.push_str("\n---\n*EXP-012: History impact experiment*\n");
+
+    let exp_dir = "D:/project/d0-vm/docs/experiments/EXP-012-history-impact";
+    fs::write(format!("{}/experiment.md", exp_dir), &report).expect("Failed to write");
+
+    // Per-seed CSV
+    let mut csv = fs::File::create(format!("{}/data/per_seed.csv", exp_dir)).expect("CSV");
+    writeln!(csv, "group,seed,survived,avg_pop,avg_energy,eat,refresh,divide").unwrap();
+    for (i, &seed) in seeds.iter().enumerate() {
+        let r = &g1_results[i];
+        writeln!(csv, "abundant_scarce,{},{},{:.2},{:.2},{:.6},{:.6},{:.6}",
+            seed, r.survived, r.avg_population, r.avg_energy, r.eat_ratio, r.refresh_ratio, r.divide_ratio).unwrap();
+        let r = &g2_results[i];
+        writeln!(csv, "always_scarce,{},{},{:.2},{:.2},{:.6},{:.6},{:.6}",
+            seed, r.survived, r.avg_population, r.avg_energy, r.eat_ratio, r.refresh_ratio, r.divide_ratio).unwrap();
+    }
+
+    eprintln!("\nResults: docs/experiments/EXP-012-history-impact/experiment.md");
     println!("{}", report);
 }
