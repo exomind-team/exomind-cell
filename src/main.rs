@@ -79,6 +79,24 @@ fn main() {
         return;
     }
 
+    // EXP-001~003 100-round replication: cargo run --release -- --replicate001
+    if args.iter().any(|a| a == "--replicate001") {
+        run_replication_exp001_003();
+        return;
+    }
+
+    // EXP-009 100-round replication: cargo run --release -- --replicate009
+    if args.iter().any(|a| a == "--replicate009") {
+        run_replication_exp009();
+        return;
+    }
+
+    // EXP-011 100-round replication: cargo run --release -- --replicate011
+    if args.iter().any(|a| a == "--replicate011") {
+        run_replication_exp011();
+        return;
+    }
+
     // Real CPU mode: cargo run -- --real-cpu
     if args.iter().any(|a| a == "--real-cpu") {
         run_realcpu_experiment();
@@ -110,6 +128,9 @@ fn main() {
   ║    --tui --cell --no-decay  v3 Control     ║
   ║    --cell           v3 Cell experiments     ║
   ║    --stats          100-seed parallel       ║
+  ║    --replicate001   EXP-001~003 100 rounds  ║
+  ║    --replicate009   EXP-009 100 rounds      ║
+  ║    --replicate011   EXP-011 100 rounds      ║
   ║    (no flag)        v2 experiments          ║
   ║                                            ║
   ║  TUI Controls:                             ║
@@ -1176,149 +1197,830 @@ fn run_gate_trial(seed: u64, abundant_first: bool) -> cell_vm::CellSteadyState {
 fn run_exp014() {
     use rayon::prelude::*;
 
-    eprintln!("EXP-014: GATE Learning (Data Cell Gene Regulation)");
-    eprintln!("===================================================");
-    eprintln!("  GATE instruction + Seed G (evaluation + gated DIVIDE)");
-    eprintln!("  100 seeds x 2 groups, 1M ticks, rayon parallel\n");
+    let num_rounds = 100;
+    let seeds_per_round = 10;
 
-    let seeds: Vec<u64> = (400..500).collect(); // 100 seeds
+    eprintln!("EXP-014: GATE Learning — 100 Independent Rounds");
+    eprintln!("================================================");
+    eprintln!("  {} rounds x {} seeds/round x 2 groups = {} total runs",
+        num_rounds, seeds_per_round, num_rounds * seeds_per_round * 2);
+    eprintln!("  Each round: independent seeds, 1M ticks, per-round p-value\n");
+
     let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-014-gate-learning/data");
 
-    eprintln!("Running Group 1 (abundant→scarce)...");
-    let g1: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
-        .map(|&s| run_gate_trial(s, true)).collect();
-
-    eprintln!("Running Group 2 (always scarce)...");
-    let g2: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
-        .map(|&s| run_gate_trial(s, false)).collect();
-
-    let g1_eat: Vec<f64> = g1.iter().map(|r| r.eat_ratio).collect();
-    let g2_eat: Vec<f64> = g2.iter().map(|r| r.eat_ratio).collect();
-    let g1_ref: Vec<f64> = g1.iter().map(|r| r.refresh_ratio).collect();
-    let g2_ref: Vec<f64> = g2.iter().map(|r| r.refresh_ratio).collect();
-    let g1_div: Vec<f64> = g1.iter().map(|r| r.divide_ratio).collect();
-    let g2_div: Vec<f64> = g2.iter().map(|r| r.divide_ratio).collect();
-
-    let comp_eat = stats::compare_groups("EAT", &g1_eat, &g2_eat);
-    let comp_ref = stats::compare_groups("REFRESH", &g1_ref, &g2_ref);
-    let comp_div = stats::compare_groups("DIVIDE", &g1_div, &g2_div);
-    let g1_pop: Vec<f64> = g1.iter().map(|r| r.avg_population).collect();
-    let g2_pop: Vec<f64> = g2.iter().map(|r| r.avg_population).collect();
-    let comp_pop = stats::compare_groups("Population", &g1_pop, &g2_pop);
-
-    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
-    let surv = |r: &[cell_vm::CellSteadyState]| r.iter().filter(|x| x.survived).count();
-
-    let mut report = String::new();
-    report.push_str("# EXP-014: GATE Learning (Data Cell Gene Regulation)\n\n");
-    report.push_str("## Design\n\n");
-    report.push_str("- GATE instruction: reads adjacent Data cell, if value==0 skips next Code cell\n");
-    report.push_str("- Seed G: evaluation module (SENSE→EAT→SENSE→CMP→STORE) + GATE→DIVIDE\n");
-    report.push_str("- Only divides when Data cell > 0 (= energy improved after eating)\n");
-    report.push_str("- Group 1: abundant (500) first 10k ticks, then scarce (50)\n");
-    report.push_str("- Group 2: always scarce (50)\n");
-    report.push_str(&format!("- 1M ticks, {} seeds, CEM=50, data_cell_gating=true\n\n", seeds.len()));
-
-    report.push_str("## Results\n\n");
-    report.push_str("| Group | Survived | Avg Pop | Avg Energy | EAT% | REFRESH% | DIVIDE% |\n");
-    report.push_str("|-------|----------|---------|-----------|------|----------|--------|\n");
-
-    let g1_energy: Vec<f64> = g1.iter().map(|r| r.avg_energy).collect();
-    let g2_energy: Vec<f64> = g2.iter().map(|r| r.avg_energy).collect();
-    // g1_pop, g2_pop already defined above for comp_pop
-
-    let n = seeds.len();
-    report.push_str(&format!(
-        "| Abundant→Scarce | {}/{} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
-        surv(&g1), n, avg(&g1_pop), avg(&g1_energy),
-        avg(&g1_eat)*100.0, avg(&g1_ref)*100.0, avg(&g1_div)*100.0,
-    ));
-    report.push_str(&format!(
-        "| Always Scarce | {}/{} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
-        surv(&g2), n, avg(&g2_pop), avg(&g2_energy),
-        avg(&g2_eat)*100.0, avg(&g2_ref)*100.0, avg(&g2_div)*100.0,
-    ));
-
-    report.push_str("\n## Statistical Tests\n\n");
-    report.push_str("| Metric | Diff | 95% CI | MW p | d |\n");
-    report.push_str("|--------|------|--------|------|---|\n");
-    for c in [&comp_eat, &comp_ref, &comp_div, &comp_pop] {
-        report.push_str(&format!(
-            "| {} | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.3} |\n",
-            c.metric_name, c.mean_diff, c.ci_lower, c.ci_upper, c.p_value, c.cohens_d,
-        ));
+    // Run all rounds in parallel (each round runs 10 seeds sequentially for both groups)
+    struct RoundResult {
+        round: usize,
+        refresh_diff: f64,  // mean(g1_refresh) - mean(g2_refresh)
+        eat_diff: f64,
+        pop_diff: f64,
+        refresh_p: f64,
+        refresh_d: f64,
+        g1_refresh_mean: f64,
+        g2_refresh_mean: f64,
     }
 
-    // Per-round meta-analysis: how many rounds show effect in predicted direction?
-    report.push_str("\n## Per-Round Meta-Analysis (100 independent rounds)\n\n");
-    let mut refresh_positive = 0; // rounds where abundant→scarce has higher REFRESH
-    let mut eat_positive = 0;
-    let mut pop_negative = 0; // rounds where abundant→scarce has smaller population
+    let rounds: Vec<usize> = (0..num_rounds).collect();
+    let results: Vec<RoundResult> = rounds.par_iter().map(|&round| {
+        let base_seed = (round as u64) * 1000 + 5000;
+        let round_seeds: Vec<u64> = (base_seed..base_seed + seeds_per_round as u64).collect();
 
-    let refresh_diffs: Vec<f64> = g1_ref.iter().zip(g2_ref.iter()).map(|(a, b)| a - b).collect();
-    let eat_diffs: Vec<f64> = g1_eat.iter().zip(g2_eat.iter()).map(|(a, b)| a - b).collect();
-    let pop_diffs: Vec<f64> = g1_pop.iter().zip(g2_pop.iter()).map(|(a, b)| a - b).collect();
+        let g1: Vec<cell_vm::CellSteadyState> = round_seeds.iter()
+            .map(|&s| run_gate_trial(s, true)).collect();
+        let g2: Vec<cell_vm::CellSteadyState> = round_seeds.iter()
+            .map(|&s| run_gate_trial(s, false)).collect();
 
-    for d in &refresh_diffs { if *d > 0.0 { refresh_positive += 1; } }
-    for d in &eat_diffs { if *d > 0.0 { eat_positive += 1; } }
-    for d in &pop_diffs { if *d < 0.0 { pop_negative += 1; } }
+        let g1_ref: Vec<f64> = g1.iter().map(|r| r.refresh_ratio).collect();
+        let g2_ref: Vec<f64> = g2.iter().map(|r| r.refresh_ratio).collect();
+        let g1_eat: Vec<f64> = g1.iter().map(|r| r.eat_ratio).collect();
+        let g2_eat: Vec<f64> = g2.iter().map(|r| r.eat_ratio).collect();
+        let g1_pop: Vec<f64> = g1.iter().map(|r| r.avg_population).collect();
+        let g2_pop: Vec<f64> = g2.iter().map(|r| r.avg_population).collect();
 
-    let avg_diff = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
-    let sd_diff = |v: &[f64]| {
-        let m = avg_diff(v);
+        let comp = stats::compare_groups("REFRESH", &g1_ref, &g2_ref);
+        let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+
+        if round % 10 == 0 {
+            eprintln!("  Round {}/{} done", round + 1, num_rounds);
+        }
+
+        RoundResult {
+            round,
+            refresh_diff: avg(&g1_ref) - avg(&g2_ref),
+            eat_diff: avg(&g1_eat) - avg(&g2_eat),
+            pop_diff: avg(&g1_pop) - avg(&g2_pop),
+            refresh_p: comp.p_value,
+            refresh_d: comp.cohens_d,
+            g1_refresh_mean: avg(&g1_ref),
+            g2_refresh_mean: avg(&g2_ref),
+        }
+    }).collect();
+
+    // Meta-analysis
+    let refresh_positive = results.iter().filter(|r| r.refresh_diff > 0.0).count();
+    let refresh_sig = results.iter().filter(|r| r.refresh_p < 0.05 && r.refresh_diff > 0.0).count();
+    let pop_negative = results.iter().filter(|r| r.pop_diff < 0.0).count();
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let sd = |v: &[f64]| {
+        let m = avg(v);
         (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (v.len() - 1) as f64).sqrt()
     };
 
-    report.push_str(&format!("Each round = one seed, both groups run independently, 1M ticks.\n\n"));
-    report.push_str("| Metric | Rounds in predicted direction | Mean diff | SD | Win rate |\n");
-    report.push_str("|--------|-------------------------------|-----------|-----|----------|\n");
+    let all_refresh_diffs: Vec<f64> = results.iter().map(|r| r.refresh_diff).collect();
+    let all_refresh_d: Vec<f64> = results.iter().map(|r| r.refresh_d).collect();
+    let all_eat_diffs: Vec<f64> = results.iter().map(|r| r.eat_diff).collect();
+    let all_pop_diffs: Vec<f64> = results.iter().map(|r| r.pop_diff).collect();
+
+    // Generate report
+    let mut report = String::new();
+    report.push_str("# EXP-014: GATE Learning — 100 Independent Rounds\n\n");
+    report.push_str("## Design\n\n");
+    report.push_str("- GATE instruction + Seed G (evaluation + gated DIVIDE)\n");
+    report.push_str(&format!("- {} independent rounds, {} seeds per round, 1M ticks each\n", num_rounds, seeds_per_round));
+    report.push_str("- Each round: independent seed set, independent population, per-round p-value\n\n");
+
+    // Meta-analysis table
+    let eat_positive = results.iter().filter(|r| r.eat_diff > 0.0).count();
+    report.push_str("## Meta-Analysis\n\n");
+    report.push_str("| Metric | Direction win | p<0.05 wins | Mean diff | SD | Win rate |\n");
+    report.push_str("|--------|-------------|------------|-----------|-----|----------|\n");
     report.push_str(&format!(
-        "| REFRESH (exp > ctrl) | {}/{} | {:.4} | {:.4} | {:.0}% |\n",
-        refresh_positive, seeds.len(), avg_diff(&refresh_diffs), sd_diff(&refresh_diffs),
-        refresh_positive as f64 / seeds.len() as f64 * 100.0,
+        "| REFRESH | {}/{} | {}/{} | {:.4} | {:.4} | {:.0}% |\n",
+        refresh_positive, num_rounds, refresh_sig, num_rounds,
+        avg(&all_refresh_diffs), sd(&all_refresh_diffs),
+        refresh_positive as f64 / num_rounds as f64 * 100.0,
     ));
     report.push_str(&format!(
-        "| EAT (exp > ctrl) | {}/{} | {:.4} | {:.4} | {:.0}% |\n",
-        eat_positive, seeds.len(), avg_diff(&eat_diffs), sd_diff(&eat_diffs),
-        eat_positive as f64 / seeds.len() as f64 * 100.0,
+        "| EAT | {}/{} | — | {:.4} | {:.4} | {:.0}% |\n",
+        eat_positive, num_rounds,
+        avg(&all_eat_diffs), sd(&all_eat_diffs),
+        eat_positive as f64 / num_rounds as f64 * 100.0,
     ));
     report.push_str(&format!(
-        "| Population (exp < ctrl) | {}/{} | {:.1} | {:.1} | {:.0}% |\n",
-        pop_negative, seeds.len(), avg_diff(&pop_diffs), sd_diff(&pop_diffs),
-        pop_negative as f64 / seeds.len() as f64 * 100.0,
+        "| Population | {}/{} | — | {:.1} | {:.1} | {:.0}% |\n",
+        pop_negative, num_rounds,
+        avg(&all_pop_diffs), sd(&all_pop_diffs),
+        pop_negative as f64 / num_rounds as f64 * 100.0,
     ));
+
+    // Effect size distribution
+    report.push_str(&format!("\n## Effect Size Distribution (REFRESH Cohen's d across rounds)\n\n"));
+    report.push_str(&format!("- Mean d: {:.3}\n", avg(&all_refresh_d)));
+    report.push_str(&format!("- SD d: {:.3}\n", sd(&all_refresh_d)));
+    let positive_d = all_refresh_d.iter().filter(|&&d| d > 0.0).count();
+    report.push_str(&format!("- Positive d: {}/{} ({:.0}%)\n", positive_d, num_rounds, positive_d as f64 / num_rounds as f64 * 100.0));
 
     report.push_str("\n## Conclusion\n\n");
-    if comp_ref.p_value < 0.001 {
-        report.push_str(&format!(
-            "GATE mechanism produces robust history-dependent behavior:\n\
-             - REFRESH effect in predicted direction in {}% of independent rounds\n\
-             - Population effect in {}% of rounds\n\
-             - Pooled REFRESH p<0.0001, d={:.3}\n",
-            refresh_positive as f64 / seeds.len() as f64 * 100.0,
-            pop_negative as f64 / seeds.len() as f64 * 100.0,
-            comp_ref.cohens_d,
-        ));
-    } else {
-        report.push_str("GATE mechanism effect not consistently replicated.\n");
-    }
+    report.push_str(&format!(
+        "Across {} truly independent experiments (each with {} seeds, independent initialization, 1M ticks):\n",
+        num_rounds, seeds_per_round
+    ));
+    report.push_str(&format!(
+        "- REFRESH effect in predicted direction: **{}%** of rounds\n", refresh_positive * 100 / num_rounds
+    ));
+    report.push_str(&format!(
+        "- REFRESH p<0.05 in predicted direction: **{}%** of rounds\n", refresh_sig * 100 / num_rounds
+    ));
+    report.push_str(&format!(
+        "- Population effect: **{}%** of rounds\n", pop_negative * 100 / num_rounds
+    ));
 
-    report.push_str("\n---\n*EXP-014: GATE learning experiment (100 independent rounds)*\n");
+    report.push_str("\n---\n*EXP-014: 100 independent rounds meta-analysis*\n");
 
     let dir = "D:/project/d0-vm/docs/experiments/EXP-014-gate-learning";
     fs::write(format!("{}/experiment.md", dir), &report).expect("write");
 
-    let mut csv = fs::File::create(format!("{}/data/per_seed.csv", dir)).expect("csv");
-    writeln!(csv, "group,seed,survived,pop,energy,eat,refresh,divide").unwrap();
-    for (i, &seed) in seeds.iter().enumerate() {
-        let r = &g1[i];
-        writeln!(csv, "abundant_scarce,{},{},{:.2},{:.2},{:.6},{:.6},{:.6}",
-            seed, r.survived, r.avg_population, r.avg_energy, r.eat_ratio, r.refresh_ratio, r.divide_ratio).unwrap();
-        let r = &g2[i];
-        writeln!(csv, "always_scarce,{},{},{:.2},{:.2},{:.6},{:.6},{:.6}",
-            seed, r.survived, r.avg_population, r.avg_energy, r.eat_ratio, r.refresh_ratio, r.divide_ratio).unwrap();
+    // Per-round CSV
+    let mut csv = fs::File::create(format!("{}/data/per_round.csv", dir)).expect("csv");
+    writeln!(csv, "round,refresh_diff,eat_diff,pop_diff,refresh_p,refresh_d,g1_refresh,g2_refresh").unwrap();
+    for r in &results {
+        writeln!(csv, "{},{:.6},{:.6},{:.2},{:.6},{:.4},{:.6},{:.6}",
+            r.round, r.refresh_diff, r.eat_diff, r.pop_diff,
+            r.refresh_p, r.refresh_d, r.g1_refresh_mean, r.g2_refresh_mean).unwrap();
     }
 
     eprintln!("\nResults: docs/experiments/EXP-014-gate-learning/experiment.md");
+    println!("{}", report);
+}
+
+// ============================================================================
+// EXP-001~003: 100-Round Independent Replication
+// D0 Operational Closure — freshness_decay (true vs false)
+// CEM=50, R=5, 500k ticks
+// ============================================================================
+
+fn run_replication_exp001_003() {
+    use rayon::prelude::*;
+
+    let num_rounds = 100usize;
+    let seeds_per_round = 5usize; // 5 seeds per round, both groups
+
+    eprintln!("EXP-001~003: 100-Round Independent Replication (Operational Closure)");
+    eprintln!("======================================================================");
+    eprintln!("  {} rounds x {} seeds/round x 2 groups = {} total runs",
+        num_rounds, seeds_per_round, num_rounds * seeds_per_round * 2);
+    eprintln!("  Config: Cell v3, CEM=50, R=5, 500k ticks\n");
+
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-001-replication/data");
+
+    struct RoundResult {
+        round: usize,
+        exp_refresh: f64,
+        ctrl_refresh: f64,
+        refresh_diff: f64,
+        eat_diff: f64,
+        pop_diff: f64,
+        refresh_p: f64,
+        refresh_d: f64,
+        exp_survived: usize,
+        ctrl_survived: usize,
+    }
+
+    let rounds: Vec<usize> = (0..num_rounds).collect();
+
+    let results: Vec<RoundResult> = rounds.par_iter().map(|&round| {
+        let base_seed = (round as u64) * 100 + 10_000;
+        let round_seeds: Vec<u64> = (base_seed..base_seed + seeds_per_round as u64).collect();
+
+        let mut exp_refreshes = Vec::new();
+        let mut ctrl_refreshes = Vec::new();
+        let mut exp_eats = Vec::new();
+        let mut ctrl_eats = Vec::new();
+        let mut exp_pops = Vec::new();
+        let mut ctrl_pops = Vec::new();
+        let mut exp_survived = 0usize;
+        let mut ctrl_survived = 0usize;
+
+        for &seed in &round_seeds {
+            // Experimental: freshness_decay = true
+            let mut exp_config = CellConfig::experimental();
+            exp_config.cell_energy_max = 50;
+            exp_config.refresh_radius = 5;
+            exp_config.total_ticks = 500_000;
+            exp_config.snapshot_interval = 5_000;
+            exp_config.genome_dump_interval = 0;
+
+            let mut exp_world = CellWorld::new(exp_config.clone(), seed);
+            for _ in 0..10 { exp_world.add_organism(cell_seed_a(&exp_config)); }
+            for _ in 0..10 { exp_world.add_organism(cell_seed_b(&exp_config)); }
+            exp_world.run();
+            let exp_ss = cell_compute_steady_state(&exp_world.snapshots);
+
+            if exp_ss.survived { exp_survived += 1; }
+            exp_refreshes.push(exp_ss.refresh_ratio);
+            exp_eats.push(exp_ss.eat_ratio);
+            exp_pops.push(exp_ss.avg_population);
+
+            // Control: freshness_decay = false
+            let mut ctrl_config = CellConfig::control();
+            ctrl_config.cell_energy_max = 50;
+            ctrl_config.refresh_radius = 5;
+            ctrl_config.total_ticks = 500_000;
+            ctrl_config.snapshot_interval = 5_000;
+            ctrl_config.genome_dump_interval = 0;
+
+            let mut ctrl_world = CellWorld::new(ctrl_config.clone(), seed);
+            for _ in 0..10 { ctrl_world.add_organism(cell_seed_a(&ctrl_config)); }
+            for _ in 0..10 { ctrl_world.add_organism(cell_seed_b(&ctrl_config)); }
+            ctrl_world.run();
+            let ctrl_ss = cell_compute_steady_state(&ctrl_world.snapshots);
+
+            if ctrl_ss.survived { ctrl_survived += 1; }
+            ctrl_refreshes.push(ctrl_ss.refresh_ratio);
+            ctrl_eats.push(ctrl_ss.eat_ratio);
+            ctrl_pops.push(ctrl_ss.avg_population);
+        }
+
+        let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        let exp_refresh_mean = avg(&exp_refreshes);
+        let ctrl_refresh_mean = avg(&ctrl_refreshes);
+
+        let comp = stats::compare_groups("REFRESH", &exp_refreshes, &ctrl_refreshes);
+
+        if round % 10 == 0 {
+            eprintln!("  Round {}/{}: exp_refresh={:.4} ctrl_refresh={:.4} diff={:.4} p={:.4}",
+                round + 1, num_rounds,
+                exp_refresh_mean, ctrl_refresh_mean,
+                exp_refresh_mean - ctrl_refresh_mean,
+                comp.p_value);
+        }
+
+        RoundResult {
+            round,
+            exp_refresh: exp_refresh_mean,
+            ctrl_refresh: ctrl_refresh_mean,
+            refresh_diff: exp_refresh_mean - ctrl_refresh_mean,
+            eat_diff: avg(&exp_eats) - avg(&ctrl_eats),
+            pop_diff: avg(&exp_pops) - avg(&ctrl_pops),
+            refresh_p: comp.p_value,
+            refresh_d: comp.cohens_d,
+            exp_survived,
+            ctrl_survived,
+        }
+    }).collect();
+
+    // Meta-analysis
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let sd = |v: &[f64]| {
+        let m = avg(v);
+        ((v.iter().map(|x| (x - m).powi(2)).sum::<f64>()) / (v.len() - 1) as f64).sqrt()
+    };
+    // 95% CI on mean_diff using t-interval (n=100)
+    let ci95 = |v: &[f64]| -> (f64, f64) {
+        let m = avg(v);
+        let s = sd(v);
+        let se = s / (v.len() as f64).sqrt();
+        (m - 1.984 * se, m + 1.984 * se) // t_{99, 0.025} ≈ 1.984
+    };
+
+    let all_refresh_diffs: Vec<f64> = results.iter().map(|r| r.refresh_diff).collect();
+    let all_refresh_d: Vec<f64> = results.iter().map(|r| r.refresh_d).collect();
+    let all_eat_diffs: Vec<f64> = results.iter().map(|r| r.eat_diff).collect();
+    let all_pop_diffs: Vec<f64> = results.iter().map(|r| r.pop_diff).collect();
+
+    // Direction consistency: how many rounds have exp_refresh > ctrl_refresh?
+    let refresh_positive = results.iter().filter(|r| r.refresh_diff > 0.0).count();
+    // Significant positive
+    let refresh_sig_pos = results.iter().filter(|r| r.refresh_diff > 0.0 && r.refresh_p < 0.05).count();
+    // Significant negative (falsification attempts)
+    let refresh_sig_neg = results.iter().filter(|r| r.refresh_diff < 0.0 && r.refresh_p < 0.05).count();
+    let pop_negative = results.iter().filter(|r| r.pop_diff < 0.0).count();
+
+    // Sign test p-value (binomial approximation): k successes in n=100 trials, H0: p=0.5
+    // Normal approximation: z = (k - 50) / sqrt(25)
+    let sign_z = (refresh_positive as f64 - 50.0) / 5.0;
+    // P(Z > |z|) * 2 using erfc approximation
+    let sign_p = {
+        let z = sign_z.abs();
+        // erfc approximation for p-value
+        let t = 1.0 / (1.0 + 0.3275911 * z);
+        let poly = t * (0.254829592
+            + t * (-0.284496736
+            + t * (1.421413741
+            + t * (-1.453152027
+            + t * 1.061405429))));
+        let p_one = 0.3989422804 * (-z * z / 2.0).exp() * poly;
+        2.0 * p_one
+    };
+
+    let (diff_ci_lo, diff_ci_hi) = ci95(&all_refresh_diffs);
+
+    // Stouffer's Z for combined p-values (Fisher's method alternative)
+    // Use sign test as primary meta-p
+    let effect_mean = avg(&all_refresh_diffs);
+    let effect_sd = sd(&all_refresh_diffs);
+
+    let mut report = String::new();
+    report.push_str("# EXP-001~003: 100-Round Independent Replication\n\n");
+    report.push_str("## Hypothesis\n\n");
+    report.push_str("Freshness decay (operational closure constraint) drives organisms to execute REFRESH more frequently.\n");
+    report.push_str("Prediction: exp (freshness_decay=true) REFRESH ratio > ctrl (freshness_decay=false) in majority of independent replication rounds.\n\n");
+
+    report.push_str("## Parameters\n\n");
+    report.push_str("| Parameter | Value |\n");
+    report.push_str("|-----------|-------|\n");
+    report.push_str(&format!("| VM | Cell v3 (per-cell freshness) |\n"));
+    report.push_str(&format!("| CEM | 50 |\n"));
+    report.push_str(&format!("| R (refresh radius) | 5 |\n"));
+    report.push_str(&format!("| Ticks | 500,000 |\n"));
+    report.push_str(&format!("| Seeds per round | {} |\n", seeds_per_round));
+    report.push_str(&format!("| Rounds | {} |\n", num_rounds));
+    report.push_str(&format!("| Total runs | {} |\n", num_rounds * seeds_per_round * 2));
+    report.push_str(&format!("| Initial organisms | 10 Seed A + 10 Seed B |\n"));
+    report.push_str(&format!("| Seed range | 10000–{} (round*100+10000) |\n", (num_rounds - 1) * 100 + 10000 + seeds_per_round as usize - 1));
+    report.push_str("\n");
+
+    report.push_str("## Meta-Analysis Summary\n\n");
+    report.push_str("| Metric | Value |\n");
+    report.push_str("|--------|-------|\n");
+    report.push_str(&format!("| Direction win (exp_REFRESH > ctrl_REFRESH) | **{}/{}** ({:.0}%) |\n",
+        refresh_positive, num_rounds, refresh_positive as f64 / num_rounds as f64 * 100.0));
+    report.push_str(&format!("| Sign test p-value | **{:.6}** (H0: p=0.5) |\n", sign_p));
+    report.push_str(&format!("| Sig. wins (p<0.05 AND diff>0) | {}/{} ({:.0}%) |\n",
+        refresh_sig_pos, num_rounds, refresh_sig_pos as f64 / num_rounds as f64 * 100.0));
+    report.push_str(&format!("| Sig. losses (p<0.05 AND diff<0) | {}/{} ({:.0}%) |\n",
+        refresh_sig_neg, num_rounds, refresh_sig_neg as f64 / num_rounds as f64 * 100.0));
+    report.push_str(&format!("| Mean REFRESH diff (exp-ctrl) | **{:.4}** |\n", effect_mean));
+    report.push_str(&format!("| SD REFRESH diff | {:.4} |\n", effect_sd));
+    report.push_str(&format!("| 95% CI on mean diff | [{:.4}, {:.4}] |\n", diff_ci_lo, diff_ci_hi));
+    report.push_str(&format!("| Mean Cohen's d | {:.3} |\n", avg(&all_refresh_d)));
+    report.push_str(&format!("| SD Cohen's d | {:.3} |\n", sd(&all_refresh_d)));
+    report.push_str(&format!("| Population effect (exp_pop < ctrl_pop) | {}/{} ({:.0}%) |\n",
+        pop_negative, num_rounds, pop_negative as f64 / num_rounds as f64 * 100.0));
+    report.push_str("\n");
+
+    // Per-round table (all 100)
+    report.push_str("## Per-Round Results (100 rounds)\n\n");
+    report.push_str("| Round | Exp REFRESH | Ctrl REFRESH | Diff | Direction | p | d |\n");
+    report.push_str("|-------|------------|-------------|------|-----------|---|---|\n");
+    for r in &results {
+        let dir = if r.refresh_diff > 0.0 { "+" } else { "-" };
+        let sig = if r.refresh_p < 0.001 { "***" } else if r.refresh_p < 0.01 { "**" } else if r.refresh_p < 0.05 { "*" } else { "n.s." };
+        report.push_str(&format!("| {} | {:.4} | {:.4} | {:+.4} | {} | {:.4} {} | {:.3} |\n",
+            r.round + 1, r.exp_refresh, r.ctrl_refresh, r.refresh_diff,
+            dir, r.refresh_p, sig, r.refresh_d));
+    }
+    report.push_str("\n");
+
+    // Conclusion
+    report.push_str("## Conclusion\n\n");
+    let replication_rate = refresh_positive as f64 / num_rounds as f64;
+    report.push_str(&format!(
+        "Across {} truly independent rounds (each with {} fresh seeds, independent initialization):\n\n",
+        num_rounds, seeds_per_round
+    ));
+    report.push_str(&format!(
+        "- **Replication rate**: {:.0}% ({}/{}) rounds show exp_REFRESH > ctrl_REFRESH\n",
+        replication_rate * 100.0, refresh_positive, num_rounds
+    ));
+    report.push_str(&format!(
+        "- **Sign test**: p = {:.6} ({})\n",
+        sign_p,
+        if sign_p < 0.001 { "*** highly significant" }
+        else if sign_p < 0.01 { "** significant" }
+        else if sign_p < 0.05 { "* significant" }
+        else { "not significant" }
+    ));
+    report.push_str(&format!(
+        "- **Effect size**: mean d = {:.3} ({})\n",
+        avg(&all_refresh_d),
+        if avg(&all_refresh_d).abs() >= 0.8 { "large" }
+        else if avg(&all_refresh_d).abs() >= 0.5 { "medium" }
+        else if avg(&all_refresh_d).abs() >= 0.2 { "small" }
+        else { "negligible" }
+    ));
+    if replication_rate >= 0.8 {
+        report.push_str("\n**REPLICATED**: The operational closure constraint reliably drives increased REFRESH behavior across independent trials.\n");
+    } else if replication_rate >= 0.6 {
+        report.push_str("\n**PARTIALLY REPLICATED**: Effect is present but inconsistent across independent trials.\n");
+    } else {
+        report.push_str("\n**NOT REPLICATED**: Effect does not consistently appear across independent trials.\n");
+    }
+
+    report.push_str("\n---\n*EXP-001~003: 100-round independent replication — operational closure core test*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-001-replication";
+    fs::write(format!("{}/replication_100rounds.md", dir), &report).expect("write");
+
+    // Per-round CSV
+    let mut csv = fs::File::create(format!("{}/data/rounds_data.csv", dir)).expect("csv");
+    writeln!(csv, "round,base_seed,exp_refresh,ctrl_refresh,refresh_diff,eat_diff,pop_diff,refresh_p,refresh_d,exp_survived,ctrl_survived").unwrap();
+    for r in &results {
+        let base_seed = (r.round as u64) * 100 + 10_000;
+        writeln!(csv, "{},{},{:.6},{:.6},{:.6},{:.6},{:.2},{:.6},{:.4},{},{}",
+            r.round + 1, base_seed,
+            r.exp_refresh, r.ctrl_refresh, r.refresh_diff, r.eat_diff, r.pop_diff,
+            r.refresh_p, r.refresh_d, r.exp_survived, r.ctrl_survived).unwrap();
+    }
+
+    eprintln!("\nResults: docs/experiments/EXP-001-replication/replication_100rounds.md");
+    eprintln!("CSV: docs/experiments/EXP-001-replication/data/rounds_data.csv");
+    println!("{}", report);
+}
+
+// ============================================================================
+// EXP-009: 100-Round Independent Replication
+// Real CPU接入 — CPU availability → food modulation
+// ============================================================================
+
+fn run_replication_exp009() {
+    use rayon::prelude::*;
+
+    let num_rounds = 100usize;
+
+    eprintln!("EXP-009: 100-Round Independent Replication (CPU-modulated food)");
+    eprintln!("==================================================================");
+    eprintln!("  {} rounds: CPU-food (hash-based) vs constant-food, 500k ticks\n", num_rounds);
+
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-009-replication/data");
+
+    // One round of real-cpu experiment: food modulated by a hash-based CPU signal
+    // (replaces sysinfo which is not stable in parallel; uses per-round deterministic hash)
+    struct Exp009Round {
+        round: usize,
+        cpu_eat: f64,
+        const_eat: f64,
+        cpu_refresh: f64,
+        const_refresh: f64,
+        cpu_pop: f64,
+        const_pop: f64,
+        eat_diff: f64,  // cpu_eat - const_eat
+        survived_cpu: bool,
+        survived_const: bool,
+    }
+
+    let rounds: Vec<usize> = (0..num_rounds).collect();
+
+    let results: Vec<Exp009Round> = rounds.par_iter().map(|&round| {
+        let seed = (round as u64) * 137 + 20_000;
+
+        let base_food: i32 = 300;
+        let total_ticks: u64 = 500_000;
+        let cpu_sample_interval: u64 = 100;
+
+        // CPU-modulated world
+        let mut cpu_config = CellConfig::experimental();
+        cpu_config.cell_energy_max = 50;
+        cpu_config.food_per_tick = 0; // Manual food injection
+        cpu_config.total_ticks = total_ticks;
+        cpu_config.snapshot_interval = 5_000;
+        cpu_config.genome_dump_interval = 0;
+
+        let mut cpu_world = CellWorld::new(cpu_config.clone(), seed);
+        for _ in 0..10 { cpu_world.add_organism(cell_seed_a(&cpu_config)); }
+        for _ in 0..10 { cpu_world.add_organism(cell_seed_b(&cpu_config)); }
+
+        // Constant-food world (same average food as CPU world)
+        let avg_available: f32 = 0.65; // expected average of floor(0.3 + 0.7*(1-u)) where u~U[0,1]
+        let const_food_per_interval = (base_food as f32 * avg_available) as i32;
+        let mut const_config = CellConfig::experimental();
+        const_config.cell_energy_max = 50;
+        const_config.food_per_tick = 0;
+        const_config.total_ticks = total_ticks;
+        const_config.snapshot_interval = 5_000;
+        const_config.genome_dump_interval = 0;
+
+        let mut const_world = CellWorld::new(const_config.clone(), seed);
+        for _ in 0..10 { const_world.add_organism(cell_seed_a(&const_config)); }
+        for _ in 0..10 { const_world.add_organism(cell_seed_b(&const_config)); }
+
+        // Run tick-by-tick with food injection
+        for t in 0..total_ticks {
+            if t % cpu_sample_interval == 0 {
+                // Hash-based pseudo-CPU usage (deterministic, seed-dependent)
+                let block = t / cpu_sample_interval;
+                let hash = block.wrapping_mul(6364136223846793005u64)
+                    .wrapping_add(seed.wrapping_mul(1442695040888963407u64))
+                    >> 33;
+                let cpu_usage = (hash % 100) as f32 / 100.0;
+                let available = 0.3 + 0.7 * (1.0 - cpu_usage).max(0.0);
+                let food = (base_food as f32 * available) as i32;
+                cpu_world.food_pool += food;
+                const_world.food_pool += const_food_per_interval;
+            }
+            cpu_world.tick();
+            const_world.tick();
+        }
+
+        cpu_world.take_snapshot();
+        const_world.take_snapshot();
+        let cpu_ss = cell_compute_steady_state(&cpu_world.snapshots);
+        let const_ss = cell_compute_steady_state(&const_world.snapshots);
+
+        if round % 10 == 0 {
+            eprintln!("  Round {}/{}: cpu_eat={:.4} const_eat={:.4}",
+                round + 1, num_rounds, cpu_ss.eat_ratio, const_ss.eat_ratio);
+        }
+
+        Exp009Round {
+            round,
+            cpu_eat: cpu_ss.eat_ratio,
+            const_eat: const_ss.eat_ratio,
+            cpu_refresh: cpu_ss.refresh_ratio,
+            const_refresh: const_ss.refresh_ratio,
+            cpu_pop: cpu_ss.avg_population,
+            const_pop: const_ss.avg_population,
+            eat_diff: cpu_ss.eat_ratio - const_ss.eat_ratio,
+            survived_cpu: cpu_ss.survived,
+            survived_const: const_ss.survived,
+        }
+    }).collect();
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let sd = |v: &[f64]| {
+        let m = avg(v);
+        ((v.iter().map(|x| (x - m).powi(2)).sum::<f64>()) / (v.len() - 1) as f64).sqrt()
+    };
+    let ci95 = |v: &[f64]| -> (f64, f64) {
+        let m = avg(v);
+        let s = sd(v);
+        let se = s / (v.len() as f64).sqrt();
+        (m - 1.984 * se, m + 1.984 * se)
+    };
+
+    let all_eat_diffs: Vec<f64> = results.iter().map(|r| r.eat_diff).collect();
+    let eat_positive = results.iter().filter(|r| r.eat_diff > 0.0).count();
+    let eat_positive_diff_pos = results.iter().filter(|r| r.eat_diff > 0.0).count();
+    let survived_cpu = results.iter().filter(|r| r.survived_cpu).count();
+    let survived_const = results.iter().filter(|r| r.survived_const).count();
+
+    let (diff_ci_lo, diff_ci_hi) = ci95(&all_eat_diffs);
+
+    // Sign test p
+    let sign_z = (eat_positive as f64 - 50.0) / 5.0;
+    let sign_p = {
+        let z = sign_z.abs();
+        let t = 1.0 / (1.0 + 0.3275911 * z);
+        let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+        2.0 * 0.3989422804 * (-z * z / 2.0).exp() * poly
+    };
+
+    let all_cpu_eats: Vec<f64> = results.iter().map(|r| r.cpu_eat).collect();
+    let all_const_eats: Vec<f64> = results.iter().map(|r| r.const_eat).collect();
+    let comp = stats::compare_groups("EAT", &all_cpu_eats, &all_const_eats);
+
+    let mut report = String::new();
+    report.push_str("# EXP-009: 100-Round Independent Replication (CPU-modulated food)\n\n");
+    report.push_str("## Hypothesis\n\n");
+    report.push_str("CPU-modulated food supply (variable, correlated with real workload) drives higher EAT rate compared to constant equivalent food supply, as organisms must adapt to temporal scarcity.\n\n");
+
+    report.push_str("## Parameters\n\n");
+    report.push_str("| Parameter | Value |\n");
+    report.push_str("|-----------|-------|\n");
+    report.push_str("| VM | Cell v3, CEM=50, R=5 |\n");
+    report.push_str("| Ticks | 500,000 |\n");
+    report.push_str(&format!("| Rounds | {} |\n", num_rounds));
+    report.push_str("| CPU signal | Hash-based pseudo (deterministic per seed) |\n");
+    report.push_str("| Base food | 300 units per 100-tick sample |\n");
+    report.push_str("| CPU floor | 30% (food = base × (0.3 + 0.7×(1-cpu))) |\n");
+    report.push_str("| Constant food | Same expected value (65% of base) |\n");
+    report.push_str("\n");
+
+    report.push_str("## Meta-Analysis Summary\n\n");
+    report.push_str("| Metric | Value |\n");
+    report.push_str("|--------|-------|\n");
+    report.push_str(&format!("| Survived (CPU) | {}/{} |\n", survived_cpu, num_rounds));
+    report.push_str(&format!("| Survived (Const) | {}/{} |\n", survived_const, num_rounds));
+    report.push_str(&format!("| EAT diff > 0 (cpu > const) | **{}/{}** ({:.0}%) |\n",
+        eat_positive_diff_pos, num_rounds, eat_positive_diff_pos as f64 / num_rounds as f64 * 100.0));
+    report.push_str(&format!("| Sign test p | {:.6} |\n", sign_p));
+    report.push_str(&format!("| Mean EAT diff (cpu-const) | **{:.4}** |\n", avg(&all_eat_diffs)));
+    report.push_str(&format!("| SD EAT diff | {:.4} |\n", sd(&all_eat_diffs)));
+    report.push_str(&format!("| 95% CI on mean diff | [{:.4}, {:.4}] |\n", diff_ci_lo, diff_ci_hi));
+    report.push_str(&format!("| MW p (pooled 100 rounds) | {:.6} |\n", comp.p_value));
+    report.push_str(&format!("| Cohen's d | {:.3} |\n", comp.cohens_d));
+    report.push_str("\n");
+
+    report.push_str("## Per-Round Results (100 rounds)\n\n");
+    report.push_str("| Round | CPU EAT | Const EAT | Diff | CPU Pop | Const Pop | CPU Surv | Const Surv |\n");
+    report.push_str("|-------|---------|----------|------|---------|----------|----------|------------|\n");
+    for r in &results {
+        let dir = if r.eat_diff > 0.0 { "+" } else { "-" };
+        report.push_str(&format!("| {} | {:.4} | {:.4} | {}{:.4} | {:.1} | {:.1} | {} | {} |\n",
+            r.round + 1,
+            r.cpu_eat, r.const_eat, dir, r.eat_diff.abs(),
+            r.cpu_pop, r.const_pop,
+            if r.survived_cpu { "YES" } else { "NO" },
+            if r.survived_const { "YES" } else { "NO" }));
+    }
+    report.push_str("\n");
+
+    report.push_str("## Conclusion\n\n");
+    report.push_str(&format!(
+        "Across {} independent rounds (different seeds, independent initialization):\n\n",
+        num_rounds
+    ));
+    report.push_str(&format!(
+        "- CPU-variable food leads to **{:.0}%** of rounds where cpu_EAT > const_EAT\n",
+        eat_positive_diff_pos as f64 / num_rounds as f64 * 100.0
+    ));
+    report.push_str(&format!("- Sign test p = {:.6}\n", sign_p));
+
+    report.push_str("\n---\n*EXP-009: 100-round replication — CPU-modulated food EAT adaptation*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-009-replication";
+    fs::write(format!("{}/replication_100rounds.md", dir), &report).expect("write");
+
+    let mut csv = fs::File::create(format!("{}/data/rounds_data.csv", dir)).expect("csv");
+    writeln!(csv, "round,seed,cpu_eat,const_eat,eat_diff,cpu_refresh,const_refresh,cpu_pop,const_pop,survived_cpu,survived_const").unwrap();
+    for r in &results {
+        let seed = (r.round as u64) * 137 + 20_000;
+        writeln!(csv, "{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.2},{:.2},{},{}",
+            r.round + 1, seed,
+            r.cpu_eat, r.const_eat, r.eat_diff,
+            r.cpu_refresh, r.const_refresh,
+            r.cpu_pop, r.const_pop,
+            r.survived_cpu, r.survived_const).unwrap();
+    }
+
+    eprintln!("\nResults: docs/experiments/EXP-009-replication/replication_100rounds.md");
+    println!("{}", report);
+}
+
+// ============================================================================
+// EXP-011: 100-Round Independent Replication (Signal Sensitivity)
+// ============================================================================
+
+fn run_replication_exp011() {
+    use rayon::prelude::*;
+
+    let num_rounds = 100usize;
+
+    eprintln!("EXP-011: 100-Round Independent Replication (Signal Sensitivity)");
+    eprintln!("==================================================================");
+    eprintln!("  {} rounds: predictable signal (A) vs random (E) vs no signal (F)\n", num_rounds);
+
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-011-replication/data");
+
+    // Each round: 1 seed, three conditions
+    struct Exp011Round {
+        round: usize,
+        // Group A: square wave, delta=200 (predictable)
+        a_eat: f64,
+        // Group E: random signal, delta=200 (unpredictable)
+        e_eat: f64,
+        // Group F: no signal
+        f_eat: f64,
+        a_pop: f64,
+        e_pop: f64,
+        f_pop: f64,
+        a_survived: bool,
+        e_survived: bool,
+        f_survived: bool,
+        // EAT diff: A vs F (predictable signal advantage over no-signal)
+        ae_diff: f64,
+        af_diff: f64,
+    }
+
+    let rounds: Vec<usize> = (0..num_rounds).collect();
+
+    let results: Vec<Exp011Round> = rounds.par_iter().map(|&round| {
+        let seed = (round as u64) * 77 + 30_000;
+
+        let group_a = signal::SenseMakingGroup::group_a(); // square d=200
+        let group_e = signal::SenseMakingGroup::group_e(); // random d=200
+        let group_f = signal::SenseMakingGroup::group_f(); // no signal
+
+        let ss_a = run_sensemaking_trial(&group_a, seed);
+        let ss_e = run_sensemaking_trial(&group_e, seed);
+        let ss_f = run_sensemaking_trial(&group_f, seed);
+
+        if round % 10 == 0 {
+            eprintln!("  Round {}/{}: A_eat={:.4} E_eat={:.4} F_eat={:.4}",
+                round + 1, num_rounds, ss_a.eat_ratio, ss_e.eat_ratio, ss_f.eat_ratio);
+        }
+
+        let ae_diff = ss_a.eat_ratio - ss_e.eat_ratio;
+        let af_diff = ss_a.eat_ratio - ss_f.eat_ratio;
+
+        Exp011Round {
+            round,
+            a_eat: ss_a.eat_ratio,
+            e_eat: ss_e.eat_ratio,
+            f_eat: ss_f.eat_ratio,
+            a_pop: ss_a.avg_population,
+            e_pop: ss_e.avg_population,
+            f_pop: ss_f.avg_population,
+            a_survived: ss_a.survived,
+            e_survived: ss_e.survived,
+            f_survived: ss_f.survived,
+            ae_diff,
+            af_diff,
+        }
+    }).collect();
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    let sd = |v: &[f64]| {
+        let m = avg(v);
+        ((v.iter().map(|x| (x - m).powi(2)).sum::<f64>()) / (v.len() - 1) as f64).sqrt()
+    };
+    let ci95 = |v: &[f64]| -> (f64, f64) {
+        let m = avg(v);
+        let s = sd(v);
+        let se = s / (v.len() as f64).sqrt();
+        (m - 1.984 * se, m + 1.984 * se)
+    };
+
+    let all_ae_diffs: Vec<f64> = results.iter().map(|r| r.ae_diff).collect();
+    let all_af_diffs: Vec<f64> = results.iter().map(|r| r.af_diff).collect();
+    let all_a_eats: Vec<f64> = results.iter().map(|r| r.a_eat).collect();
+    let all_e_eats: Vec<f64> = results.iter().map(|r| r.e_eat).collect();
+    let all_f_eats: Vec<f64> = results.iter().map(|r| r.f_eat).collect();
+
+    let ae_positive = results.iter().filter(|r| r.ae_diff > 0.0).count();
+    let af_positive = results.iter().filter(|r| r.af_diff > 0.0).count();
+
+    let (ae_ci_lo, ae_ci_hi) = ci95(&all_ae_diffs);
+    let (af_ci_lo, af_ci_hi) = ci95(&all_af_diffs);
+
+    // Sign test p for A vs E
+    let sign_z_ae = (ae_positive as f64 - 50.0) / 5.0;
+    let sign_p_ae = {
+        let z = sign_z_ae.abs();
+        let t = 1.0 / (1.0 + 0.3275911 * z);
+        let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+        2.0 * 0.3989422804 * (-z * z / 2.0).exp() * poly
+    };
+    let sign_z_af = (af_positive as f64 - 50.0) / 5.0;
+    let sign_p_af = {
+        let z = sign_z_af.abs();
+        let t = 1.0 / (1.0 + 0.3275911 * z);
+        let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+        2.0 * 0.3989422804 * (-z * z / 2.0).exp() * poly
+    };
+
+    let comp_ae = stats::compare_groups("A vs E EAT", &all_a_eats, &all_e_eats);
+    let comp_af = stats::compare_groups("A vs F EAT", &all_a_eats, &all_f_eats);
+
+    let mut report = String::new();
+    report.push_str("# EXP-011: 100-Round Independent Replication (Signal Sensitivity)\n\n");
+    report.push_str("## Hypothesis\n\n");
+    report.push_str("Organisms exposed to predictable signals (Group A: square wave, delta=200) should exhibit higher EAT rates than those with random signals (Group E) or no signal (Group F), demonstrating signal-sensitive resource acquisition.\n\n");
+
+    report.push_str("## Parameters\n\n");
+    report.push_str("| Parameter | Value |\n");
+    report.push_str("|-----------|-------|\n");
+    report.push_str("| VM | Cell v3, CEM=50, R=5 |\n");
+    report.push_str("| Ticks | 500,000 |\n");
+    report.push_str(&format!("| Rounds | {} |\n", num_rounds));
+    report.push_str("| Group A | Square wave (period=2000), delta=200 |\n");
+    report.push_str("| Group E | Random signal, delta=200 |\n");
+    report.push_str("| Group F | No signal (constant 0.5) |\n");
+    report.push_str("| Seed F organisms | SAMPLE → STORE → EAT → DIGEST → LOAD → CMP |\n");
+    report.push_str("\n");
+
+    report.push_str("## Meta-Analysis Summary\n\n");
+    report.push_str("| Comparison | Direction win | Sign p | Mean diff | 95% CI | MW p | d |\n");
+    report.push_str("|-----------|--------------|--------|-----------|--------|------|---|\n");
+    report.push_str(&format!("| A vs E (predict vs random) | {}/{} ({:.0}%) | {:.6} | {:.4} | [{:.4},{:.4}] | {:.6} | {:.3} |\n",
+        ae_positive, num_rounds, ae_positive as f64 / num_rounds as f64 * 100.0,
+        sign_p_ae, avg(&all_ae_diffs), ae_ci_lo, ae_ci_hi,
+        comp_ae.p_value, comp_ae.cohens_d));
+    report.push_str(&format!("| A vs F (predict vs no-signal) | {}/{} ({:.0}%) | {:.6} | {:.4} | [{:.4},{:.4}] | {:.6} | {:.3} |\n",
+        af_positive, num_rounds, af_positive as f64 / num_rounds as f64 * 100.0,
+        sign_p_af, avg(&all_af_diffs), af_ci_lo, af_ci_hi,
+        comp_af.p_value, comp_af.cohens_d));
+    report.push_str("\n");
+
+    report.push_str("## Per-Round Results (100 rounds)\n\n");
+    report.push_str("| Round | A EAT | E EAT | F EAT | A-E diff | A-F diff |\n");
+    report.push_str("|-------|-------|-------|-------|---------|----------|\n");
+    for r in &results {
+        report.push_str(&format!("| {} | {:.4} | {:.4} | {:.4} | {:+.4} | {:+.4} |\n",
+            r.round + 1, r.a_eat, r.e_eat, r.f_eat, r.ae_diff, r.af_diff));
+    }
+    report.push_str("\n");
+
+    report.push_str("## Conclusion\n\n");
+    report.push_str(&format!(
+        "Across {} independent rounds:\n\n", num_rounds
+    ));
+    report.push_str(&format!(
+        "- **A vs E**: {:.0}% rounds A_EAT > E_EAT, sign p = {:.6}\n",
+        ae_positive as f64 / num_rounds as f64 * 100.0, sign_p_ae
+    ));
+    report.push_str(&format!(
+        "- **A vs F**: {:.0}% rounds A_EAT > F_EAT, sign p = {:.6}\n",
+        af_positive as f64 / num_rounds as f64 * 100.0, sign_p_af
+    ));
+
+    report.push_str("\n---\n*EXP-011: 100-round replication — signal sensitivity EAT adaptation*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-011-replication";
+    fs::write(format!("{}/replication_100rounds.md", dir), &report).expect("write");
+
+    let mut csv = fs::File::create(format!("{}/data/rounds_data.csv", dir)).expect("csv");
+    writeln!(csv, "round,seed,a_eat,e_eat,f_eat,ae_diff,af_diff,a_pop,e_pop,f_pop,a_surv,e_surv,f_surv").unwrap();
+    for r in &results {
+        let seed = (r.round as u64) * 77 + 30_000;
+        writeln!(csv, "{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.2},{:.2},{:.2},{},{},{}",
+            r.round + 1, seed,
+            r.a_eat, r.e_eat, r.f_eat, r.ae_diff, r.af_diff,
+            r.a_pop, r.e_pop, r.f_pop,
+            r.a_survived, r.e_survived, r.f_survived).unwrap();
+    }
+
+    eprintln!("\nResults: docs/experiments/EXP-011-replication/replication_100rounds.md");
     println!("{}", report);
 }

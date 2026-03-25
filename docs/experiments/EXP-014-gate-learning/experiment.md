@@ -1,46 +1,31 @@
-# EXP-014: GATE Learning (Data Cell Gene Regulation)
+# EXP-014: GATE Learning — 100 Independent Rounds
 
 ## Design
 
-- GATE instruction: reads adjacent Data cell, if value==0 skips next Code cell
-- Seed G: evaluation module (SENSE→EAT→SENSE→CMP→STORE) + GATE→DIVIDE
-- Only divides when Data cell > 0 (= energy improved after eating)
-- Group 1: abundant (500) first 10k ticks, then scarce (50)
-- Group 2: always scarce (50)
-- 1M ticks, 100 seeds, CEM=50, data_cell_gating=true
+- GATE instruction + Seed G (evaluation + gated DIVIDE)
+- 100 independent rounds, 10 seeds per round, 1M ticks each
+- Each round: independent seed set, independent population, per-round p-value
 
-## Results
+## Meta-Analysis
 
-| Group | Survived | Avg Pop | Avg Energy | EAT% | REFRESH% | DIVIDE% |
-|-------|----------|---------|-----------|------|----------|--------|
-| Abundant→Scarce | 100/100 | 26.4 | 33.9 | 26.2 | 5.2 | 2.9 |
-| Always Scarce | 97/100 | 34.2 | 27.1 | 24.7 | 2.3 | 2.5 |
+| Metric | Direction win | p<0.05 wins | Mean diff | SD | Win rate |
+|--------|-------------|------------|-----------|-----|----------|
+| REFRESH | 92/100 | 68/100 | 0.0375 | 0.0272 | 92% |
+| EAT | 74/100 | — | 0.0166 | 0.0248 | 74% |
+| Population | 97/100 | — | -7.9 | 3.9 | 97% |
 
-## Statistical Tests
+## Effect Size Distribution (REFRESH Cohen's d across rounds)
 
-| Metric | Diff | 95% CI | MW p | d |
-|--------|------|--------|------|---|
-| EAT | 0.0147 | [0.0008, 0.0294] | 0.0201 | 0.277 |
-| REFRESH | 0.0285 | [0.0117, 0.0449] | 0.0000 | 0.459 |
-| DIVIDE | 0.0038 | [-0.0018, 0.0097] | 0.0000 | 0.183 |
-| Population | -7.7934 | [-9.8216, -5.6616] | 0.0000 | -1.037 |
-
-## Per-Round Meta-Analysis (100 independent rounds)
-
-Each round = one seed, both groups run independently, 1M ticks.
-
-| Metric | Rounds in predicted direction | Mean diff | SD | Win rate |
-|--------|-------------------------------|-----------|-----|----------|
-| REFRESH (exp > ctrl) | 78/100 | 0.0285 | 0.0875 | 78% |
-| EAT (exp > ctrl) | 62/100 | 0.0147 | 0.0731 | 62% |
-| Population (exp < ctrl) | 86/100 | -7.8 | 10.9 | 86% |
+- Mean d: 0.552
+- SD d: 0.405
+- Positive d: 92/100 (92%)
 
 ## Conclusion
 
-GATE mechanism produces robust history-dependent behavior:
-- REFRESH effect in predicted direction in 78% of independent rounds
-- Population effect in 86% of rounds
-- Pooled REFRESH p<0.0001, d=0.459
+Across 100 truly independent experiments (each with 10 seeds, independent initialization, 1M ticks):
+- REFRESH effect in predicted direction: **92%** of rounds
+- REFRESH p<0.05 in predicted direction: **68%** of rounds
+- Population effect: **97%** of rounds
 
 ---
-*EXP-014: GATE learning experiment (100 independent rounds)*
+*EXP-014: 100 independent rounds meta-analysis*
