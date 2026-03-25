@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
-"""Generate all figures for Paper I from experiment data."""
+"""Generate all figures for Paper I. Supports --lang cn/en and --output DIR."""
 
 import csv
 import os
+import sys
+
+# Parse args
+lang = 'cn'
+output_dir = None
+for i, arg in enumerate(sys.argv[1:], 1):
+    if arg == '--lang' and i < len(sys.argv) - 1:
+        lang = sys.argv[i + 1]
+    if arg == '--output' and i < len(sys.argv) - 1:
+        output_dir = sys.argv[i + 1]
 
 try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
+    font_cn = ['SimHei', 'Microsoft YaHei']
+    font_en = ['DejaVu Sans', 'Arial']
     plt.rcParams.update({
         'font.size': 10,
         'axes.titlesize': 12,
@@ -19,7 +31,7 @@ try:
         'figure.figsize': (8, 5),
         'figure.dpi': 300,
         'lines.linewidth': 1.5,
-        'font.sans-serif': ['SimHei', 'Microsoft YaHei'],
+        'font.sans-serif': font_cn if lang == 'cn' else font_en,
         'axes.unicode_minus': False,
     })
     EXP_COLOR = '#E74C3C'
@@ -28,8 +40,58 @@ except ImportError:
     print("Need: pip install matplotlib")
     exit(1)
 
+# Bilingual label dictionary
+L = {
+    'cn': {
+        'exp': '实验组（有衰减）', 'ctrl': '对照组（无衰减）',
+        'exp_short': '实验组', 'ctrl_short': '对照组',
+        'refresh_pct': 'REFRESH 比例 (%)', 'seed_count': '种子数量',
+        'refresh_dist_title': 'REFRESH 分布（100 个种子）',
+        'refresh_box_title': 'REFRESH：实验组 vs 对照组',
+        'abundant_scarce': '丰裕→匮乏', 'always_scarce': '一直匮乏',
+        'gate_title': 'GATE 历史效应 (p<0.0001, d=1.12)',
+        'refresh_by_history': 'REFRESH 分布（按历史分组）',
+        'opt': '优化参数\n(food=500)', 'nonopt': '非优化参数\n(food=50)',
+        'gate_on': '有 GATE', 'gate_off': '无 GATE',
+        'matrix_title': 'GATE × 参数交互效应\n（历史效应方向胜率）',
+        'win_rate': '方向胜率 (%)',
+        'eat': '进食', 'refresh': '刷新', 'divide': '复制',
+        'ratio_pct': '占比 (%)', 'instr_title': '指令比例：实验组 vs 对照组（100 个种子）',
+        'lethal': '致死/严重', 'neutral': '中性', 'beneficial': '有益',
+        'code_cells': '代码细胞数', 'knockout_title': '敲除分析：必要 vs 非必要指令',
+        'energy_bucket': '能量水平（占能量上限百分比）',
+        'instr_ratio': '指令占比 (%)',
+        'gradient_title': '价值梯度：不同能量水平下的行为差异（100 种子，200 万 ticks）',
+        'eat_exp': '进食 EAT（实验组）', 'ref_exp': '刷新 REFRESH（实验组）', 'div_exp': '复制 DIVIDE（实验组）',
+        'eat_ctrl': '进食 EAT（对照组）', 'ref_ctrl': '刷新 REFRESH（对照组）', 'div_ctrl': '复制 DIVIDE（对照组）',
+    },
+    'en': {
+        'exp': 'Experimental (decay)', 'ctrl': 'Control (no decay)',
+        'exp_short': 'Experimental', 'ctrl_short': 'Control',
+        'refresh_pct': 'REFRESH ratio (%)', 'seed_count': 'Number of seeds',
+        'refresh_dist_title': 'REFRESH Distribution (100 seeds)',
+        'refresh_box_title': 'REFRESH: Exp vs Ctrl',
+        'abundant_scarce': 'Abundant→Scarce', 'always_scarce': 'Always scarce',
+        'gate_title': 'GATE History Effect (p<0.0001, d=1.12)',
+        'refresh_by_history': 'REFRESH Distribution by History',
+        'opt': 'Optimized\n(food=500)', 'nonopt': 'Non-optimized\n(food=50)',
+        'gate_on': '+GATE', 'gate_off': '-GATE',
+        'matrix_title': 'GATE × Parameter Interaction\n(History Effect Direction Win Rate)',
+        'win_rate': 'Direction Win Rate (%)',
+        'eat': 'EAT', 'refresh': 'REFRESH', 'divide': 'DIVIDE',
+        'ratio_pct': 'Proportion (%)', 'instr_title': 'Instruction Ratios: Exp vs Ctrl (100 seeds)',
+        'lethal': 'Lethal/Severe', 'neutral': 'Neutral', 'beneficial': 'Beneficial',
+        'code_cells': 'Code Cells', 'knockout_title': 'Knockout: Essential vs Non-essential',
+        'energy_bucket': 'Energy Level (% of capacity)',
+        'instr_ratio': 'Instruction Ratio (%)',
+        'gradient_title': 'Value Gradient: Behavior by Energy Level (100 seeds, 2M ticks)',
+        'eat_exp': 'EAT (Experimental)', 'ref_exp': 'REFRESH (Experimental)', 'div_exp': 'DIVIDE (Experimental)',
+        'eat_ctrl': 'EAT (Control)', 'ref_ctrl': 'REFRESH (Control)', 'div_ctrl': 'DIVIDE (Control)',
+    },
+}[lang]
+
 DATA = "D:/project/d0-vm/data/large_scale"
-FIG = "D:/project/ExoMind-Obsidian-HailayLin/3-学科知识沉淀/33-AI_认知科学/认知生命科学/论文一/figures"
+FIG = output_dir or "D:/project/ExoMind-Obsidian-HailayLin/3-学科知识沉淀/33-AI_认知科学/认知生命科学/论文一/figures"
 os.makedirs(FIG, exist_ok=True)
 
 def read_csv(path):
@@ -46,17 +108,17 @@ def fig_refresh_distribution():
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-    ax1.hist(exp, bins=20, alpha=0.7, color=EXP_COLOR, label='实验组（有衰减）')
-    ax1.hist(ctrl, bins=20, alpha=0.7, color=CTRL_COLOR, label='对照组（无衰减）')
-    ax1.set_xlabel('REFRESH 比例 (%)')
-    ax1.set_ylabel('种子数量')
-    ax1.set_title('REFRESH 分布（100 个种子）')
-    ax1.legend(fontsize=11)
+    ax1.hist(exp, bins=20, alpha=0.7, color=EXP_COLOR, label=L['exp'])
+    ax1.hist(ctrl, bins=20, alpha=0.7, color=CTRL_COLOR, label=L['ctrl'])
+    ax1.set_xlabel(L['refresh_pct'])
+    ax1.set_ylabel(L['seed_count'])
+    ax1.set_title(L['refresh_dist_title'])
+    ax1.legend()
 
-    ax2.boxplot([exp, ctrl], tick_labels=['实验组', '对照组'],
+    ax2.boxplot([exp, ctrl], tick_labels=[L['exp_short'], L['ctrl_short']],
                 boxprops=dict(color='#333'), medianprops=dict(color='red'))
-    ax2.set_ylabel('REFRESH 比例 (%)')
-    ax2.set_title('REFRESH：实验组 vs 对照组')
+    ax2.set_ylabel(L['refresh_pct'])
+    ax2.set_title(L['refresh_box_title'])
 
     plt.tight_layout()
     plt.savefig(f"{FIG}/fig_refresh_distribution.png", dpi=200)
@@ -81,20 +143,20 @@ def fig_gate_history():
 
     # Bar chart
     means = [sum(exp_ref)/len(exp_ref), sum(ctrl_ref)/len(ctrl_ref)]
-    bars = ax1.bar(['丰裕→匮乏', '一直匮乏'], means,
+    bars = ax1.bar([L['abundant_scarce'], L['always_scarce']], means,
                    color=[EXP_COLOR, CTRL_COLOR], alpha=0.8)
-    ax1.set_ylabel('REFRESH 比例 (%)')
-    ax1.set_title('GATE 历史效应 (p<0.0001, d=1.12)')
+    ax1.set_ylabel(L['refresh_pct'])
+    ax1.set_title(L['gate_title'])
     for bar, val in zip(bars, means):
         ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
                 f'{val:.1f}%', ha='center')
 
     # Distribution
-    ax2.hist(exp_ref, bins=20, alpha=0.7, color=EXP_COLOR, label='丰裕→匮乏')
-    ax2.hist(ctrl_ref, bins=20, alpha=0.7, color=CTRL_COLOR, label='一直匮乏')
-    ax2.set_xlabel('REFRESH 比例 (%)')
-    ax2.set_ylabel('种子数量')
-    ax2.set_title('REFRESH 分布（按历史分组）')
+    ax2.hist(exp_ref, bins=20, alpha=0.7, color=EXP_COLOR, label=L['abundant_scarce'])
+    ax2.hist(ctrl_ref, bins=20, alpha=0.7, color=CTRL_COLOR, label=L['always_scarce'])
+    ax2.set_xlabel(L['refresh_pct'])
+    ax2.set_ylabel(L['seed_count'])
+    ax2.set_title(L['refresh_by_history'])
     ax2.legend(fontsize=11)
 
     plt.tight_layout()
@@ -119,9 +181,9 @@ def fig_2x2_matrix():
     im = ax.imshow(matrix, cmap='RdYlGn', vmin=30, vmax=95, aspect='auto')
 
     ax.set_xticks([0, 1])
-    ax.set_xticklabels(['无 GATE', '有 GATE'])
+    ax.set_xticklabels([L['gate_off'], L['gate_on']])
     ax.set_yticks([0, 1])
-    ax.set_yticklabels(['优化参数\n(food=500)', '非优化参数\n(food=50)'])
+    ax.set_yticklabels([L['opt'], L['nonopt']])
 
     for i in range(2):
         for j in range(2):
@@ -131,8 +193,8 @@ def fig_2x2_matrix():
             ax.text(j, i, f'{val}%\n{sig}', ha='center', va='center',
                    fontsize=16, fontweight='bold', color=color)
 
-    ax.set_title('GATE × 参数交互效应\n（历史效应方向胜率）')
-    plt.colorbar(im, label='方向胜率 (%)')
+    ax.set_title(L['matrix_title'])
+    plt.colorbar(im, label=L['win_rate'])
     plt.tight_layout()
     plt.savefig(f"{FIG}/fig_2x2_matrix.png", dpi=200)
     plt.close()
@@ -156,13 +218,13 @@ def fig_instruction_ratios():
     width = 0.35
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars1 = ax.bar([i - width/2 for i in x], exp_means, width, label='实验组', color=EXP_COLOR, alpha=0.8)
-    bars2 = ax.bar([i + width/2 for i in x], ctrl_means, width, label='对照组', color=CTRL_COLOR, alpha=0.8)
+    bars1 = ax.bar([i - width/2 for i in x], exp_means, width, label=L['exp_short'], color=EXP_COLOR, alpha=0.8)
+    bars2 = ax.bar([i + width/2 for i in x], ctrl_means, width, label=L['ctrl_short'], color=CTRL_COLOR, alpha=0.8)
 
-    ax.set_ylabel('占比 (%)')
-    ax.set_title('指令比例：实验组 vs 对照组（100 个种子）')
+    ax.set_ylabel(L['ratio_pct'])
+    ax.set_title(L['instr_title'])
     ax.set_xticks(x)
-    ax.set_xticklabels(['进食', '刷新', '复制'])
+    ax.set_xticklabels([L['eat'], L['refresh'], L['divide']])
     ax.legend(fontsize=11)
 
     for bars in [bars1, bars2]:
@@ -206,14 +268,14 @@ def fig_knockout():
     beneficial = [organisms[n]['beneficial'] for n in names]
 
     x = range(len(names))
-    ax.bar(x, lethal, color=CTRL_COLOR, label='致死/严重', alpha=0.8)
-    ax.bar(x, neutral, bottom=lethal, color='#9E9E9E', label='中性', alpha=0.8)
-    ax.bar(x, beneficial, bottom=[l+n for l,n in zip(lethal, neutral)], color=EXP_COLOR, label='有益', alpha=0.8)
+    ax.bar(x, lethal, color=CTRL_COLOR, label=L['lethal'], alpha=0.8)
+    ax.bar(x, neutral, bottom=lethal, color='#9E9E9E', label=L['neutral'], alpha=0.8)
+    ax.bar(x, beneficial, bottom=[l+n for l,n in zip(lethal, neutral)], color=EXP_COLOR, label=L['beneficial'], alpha=0.8)
 
     ax.set_xticks(x)
     ax.set_xticklabels(names)
-    ax.set_ylabel('代码细胞数')
-    ax.set_title('敲除分析：必要 vs 非必要指令')
+    ax.set_ylabel(L['code_cells'])
+    ax.set_title(L['knockout_title'])
     ax.legend(fontsize=11)
 
     for i, n in enumerate(names):
