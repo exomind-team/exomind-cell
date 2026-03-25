@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "ExoMind Cell"
+abstract: "Operational Closure Virtual Machine for Cognitive Life Science"
+authors:
+  - family-names: "Lin"
+    given-names: "JiaHao"
+    orcid: "https://orcid.org/0009-0001-0659-8723"
+version: "0.1.0"
+date-released: "2026-03-25"
+license: "CCOPL-1.0"
+url: "https://github.com/exomind-team/exomind-cell"
+repository-code: "https://github.com/exomind-team/exomind-cell"
+preferred-citation:
+  type: article
+  title: "Cognitive Life Science: Preliminary Experimental Validation of the Operational Closure Framework"
+  authors:
+    - family-names: "Lin"
+      given-names: "JiaHao"
+      orcid: "https://orcid.org/0009-0001-0659-8723"
+  year: 2026
+  publisher:
+    name: "Zenodo"
+  doi: "10.5281/zenodo.19221442"
+  url: "https://doi.org/10.5281/zenodo.19221442"

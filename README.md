@@ -29,6 +29,29 @@
 >
 > Lin, JiaHao. (2026). *Preprint.* DOI: [10.5281/zenodo.19221442](https://doi.org/10.5281/zenodo.19221442)
 
+## Citing This Work
+
+If you use ExoMind Cell in your research, please cite:
+
+```bibtex
+@article{lin2026cognitive,
+  title     = {Cognitive Life Science: Preliminary Experimental Validation of the Operational Closure Framework},
+  author    = {Lin, JiaHao},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.19221442},
+  url       = {https://doi.org/10.5281/zenodo.19221442}
+}
+```
+
+APA format:
+
+> Lin, J. (2026). Cognitive Life Science: Preliminary Experimental Validation of the Operational Closure Framework. *Zenodo*. https://doi.org/10.5281/zenodo.19221442
+
+GB/T 7714 format:
+
+> [1] LIN J H. Cognitive Life Science: Preliminary Experimental Validation of the Operational Closure Framework[R/OL]. Zenodo, 2026. https://doi.org/10.5281/zenodo.19221442.
+
 ---
 
 ## Quick Start
