@@ -56,8 +56,8 @@ Seed E can ALLOC new Energy cells when energy is sufficient (body grows).
 
 | Setup | Group | Survived | Avg Pop | Avg Cells | Avg Energy | EAT% | REFRESH% | DIVIDE% |
 |-------|-------|----------|---------|----------|-----------|------|----------|--------|
-| With ALLOC | Exp | YES | 1.0 | 7.0 | 98.0 | 25.0 | 25.0 | 0.0 |
-| With ALLOC | Ctrl | YES | 24.8 | 13.8 | 65.6 | 16.0 | 14.6 | 6.6 |
+| With ALLOC | Exp | YES | 22.3 | 11.1 | 30.6 | 25.8 | 12.3 | 9.6 |
+| With ALLOC | Ctrl | YES | 24.1 | 13.7 | 58.5 | 16.5 | 12.6 | 8.1 |
 | No ALLOC | Exp | YES | 12.2 | 153.8 | 79.5 | 35.9 | 6.7 | 8.2 |
 
 ---

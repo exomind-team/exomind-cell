@@ -300,7 +300,7 @@ impl CellWorld {
         }
     }
 
-    fn take_snapshot(&mut self) {
+    pub fn take_snapshot(&mut self) {
         let alive: Vec<&CellOrganism> = self.organisms.iter().filter(|o| o.alive).collect();
         let n = alive.len();
         let total = self.interval_instructions.max(1) as f64;
@@ -752,34 +752,29 @@ pub fn cell_seed_d(config: &CellConfig) -> CellOrganism {
 
 /// Seed E: Growth-oriented organism with ALLOC.
 ///
-/// Strategy: EAT, DIGEST, REFRESH, check energy. If energy high enough,
-/// ALLOC a new Energy cell (body grows). Then DIVIDE if really rich.
-/// Trade-off: bigger body = more energy cap but more REFRESH cost.
+/// Strategy: EAT → DIGEST → SENSE_SELF → CMP(energy, 30) → if yes: ALLOC Energy
+/// → REFRESH → loop. Trade-off: bigger body = more energy cap but more REFRESH cost.
 pub fn cell_seed_e(config: &CellConfig) -> CellOrganism {
     let f = config.freshness_max;
     let cem = config.cell_energy_max;
     let cells = vec![
         Cell::code(Instruction::Eat, f),            // 0: eat
         Cell::code(Instruction::Load(0, 0), f),     // 1: DIGEST
-        Cell::code(Instruction::Refresh, f),         // 2: refresh
-        Cell::code(Instruction::SenseSelf(1), f),    // 3: r1 = energy
-        Cell::code(Instruction::Cmp(1, 4), f),      // 4: r0 = (r1 > r4)? r4 = ALLOC threshold
-        Cell::code(Instruction::Jnz(2), f),         // 5: if enough energy, skip to ALLOC
+        Cell::code(Instruction::SenseSelf(1), f),    // 2: r1 = energy
+        Cell::code(Instruction::Cmp(1, 4), f),      // 3: r0 = (r1 > r4)? r4 = ALLOC threshold
+        Cell::code(Instruction::Jnz(2), f),         // 4: if enough energy, skip to ALLOC
+        Cell::code(Instruction::Refresh, f),         // 5: normal refresh
         Cell::code(Instruction::Jmp(-6), f),         // 6: loop back
-        Cell::code(Instruction::Emit(0), f),        // 7: ALLOC Energy cell (Emit(0) in cell mode)
-        Cell::code(Instruction::Cmp(1, 5), f),      // 8: r0 = (r1 > r5)? r5 = DIVIDE threshold
-        Cell::code(Instruction::Jnz(2), f),         // 9: if very rich, skip to DIVIDE
-        Cell::code(Instruction::Jmp(-10), f),        // 10: loop back
-        Cell::code(Instruction::Divide, f),          // 11: divide
-        Cell::code(Instruction::Jmp(-12), f),        // 12: loop back
+        Cell::code(Instruction::Emit(0), f),        // 7: ALLOC Energy cell
+        Cell::code(Instruction::Refresh, f),         // 8: refresh after ALLOC
+        Cell::code(Instruction::Jmp(-9), f),         // 9: loop back
         Cell::stomach(0, f),
         Cell::stomach(0, f),
         Cell::energy(cem, f),
         Cell::energy(cem, f),
     ];
     let mut org = CellOrganism::new(cells);
-    org.registers[4] = (cem as i32) * 2;  // ALLOC threshold: total energy > 2 full cells
-    org.registers[5] = (cem as i32) * 3;  // DIVIDE threshold: total energy > 3 full cells
+    org.registers[4] = 30; // ALLOC when energy > 30
     org
 }
 
@@ -878,10 +873,30 @@ pub fn run_cell_growth_experiment(name: &str, config: CellConfig, seed: u64) -> 
     eprintln!("========================================");
 
     let mut world = CellWorld::new(config.clone(), seed);
-    for _ in 0..5 { world.add_organism(cell_seed_a(&config)); }
-    for _ in 0..5 { world.add_organism(cell_seed_b(&config)); }
-    for _ in 0..10 { world.add_organism(cell_seed_e(&config)); }
+    for _ in 0..20 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..20 { world.add_organism(cell_seed_b(&config)); }
+    for _ in 0..20 { world.add_organism(cell_seed_e(&config)); }
 
+    world.run();
+
+    let safe_name = name.replace(' ', "_");
+    world.export_csv(&format!("D:/project/d0-vm/data/{}.csv", safe_name));
+    world.snapshots
+}
+
+/// Run cell experiment with dynamic food based on real CPU usage.
+pub fn run_cell_realcpu_experiment(name: &str, config: CellConfig, seed: u64) -> Vec<CellSnapshot> {
+    eprintln!("\n========================================");
+    eprintln!("Running CELL+REAL_CPU experiment: {}", name);
+    eprintln!("  food varies with system CPU availability");
+    eprintln!("========================================");
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..20 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..20 { world.add_organism(cell_seed_b(&config)); }
+
+    // We'll modulate food_per_tick externally via world.food_pool
+    // The actual CPU sampling happens in the caller (main.rs)
     world.run();
 
     let safe_name = name.replace(' ', "_");
