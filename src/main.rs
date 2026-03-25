@@ -95,6 +95,12 @@ fn main() {
         return;
     }
 
+    // Lineage tracking demo: cargo run --release -- --lineage
+    if args.iter().any(|a| a == "--lineage") {
+        run_lineage_demo();
+        return;
+    }
+
     // EXP-001~003 100-round replication: cargo run --release -- --replicate001
     if args.iter().any(|a| a == "--replicate001") {
         run_replication_exp001_003();
@@ -2222,4 +2228,58 @@ fn run_exp015a() {
 
     eprintln!("\nResults: {}/experiment.md", dir);
     println!("{}", report);
+}
+
+// ============================================================================
+// Lineage Tracking Demo
+// ============================================================================
+
+fn run_lineage_demo() {
+    eprintln!("Lineage Tracking Demo");
+    eprintln!("======================");
+    eprintln!("  50k ticks, seed G initial pop, lineage_tracking=true");
+
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.total_ticks = 50_000;
+    config.max_organisms = 200;
+    config.data_cell_gating = true;
+    config.lineage_tracking = true;
+    config.snapshot_interval = 5000;
+    config.genome_dump_interval = 0;
+
+    let mut world = CellWorld::new(config.clone(), 42);
+    for _ in 0..20 { world.add_organism(cell_seed_g(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+
+    for t in 0..config.total_ticks {
+        world.tick();
+        if t % 10_000 == 0 {
+            let alive = world.organisms.iter().filter(|o| o.alive).count();
+            eprintln!("  tick {} — {} alive, {} birth records", t, alive, world.lineage.records.len());
+        }
+    }
+
+    let out_dir = "D:/project/d0-vm/docs/experiments/lineage-demo";
+    let csv_path = format!("{}/lineage.csv", out_dir);
+    std::fs::create_dir_all(out_dir).ok();
+    world.write_lineage_csv(&csv_path).expect("failed to write lineage CSV");
+
+    let total_births = world.lineage.records.len();
+    let mutations: usize = world.lineage.records.iter().map(|r| r.mutation_sites.len()).sum();
+    let mutated = world.lineage.records.iter().filter(|r| !r.mutation_sites.is_empty()).count();
+
+    // Trace ancestry of last organism
+    let last_alive = world.organisms.iter().filter(|o| o.alive).last().map(|o| o.id);
+    let ancestry_depth = if let Some(id) = last_alive {
+        world.lineage.ancestors(id).len()
+    } else { 0 };
+
+    eprintln!("\n=== Results ===");
+    eprintln!("  Total birth records: {}", total_births);
+    eprintln!("  Births with mutation: {} ({:.1}%)", mutated, 100.0 * mutated as f64 / total_births.max(1) as f64);
+    eprintln!("  Total mutation events: {}", mutations);
+    eprintln!("  Ancestry depth (last organism): {}", ancestry_depth);
+    eprintln!("  CSV: {}", csv_path);
 }

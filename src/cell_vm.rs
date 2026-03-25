@@ -63,6 +63,82 @@ impl fmt::Display for Cell {
 // Organism v3
 // ============================================================================
 
+// ============================================================================
+// Lineage Tracking
+// ============================================================================
+
+/// Records one birth event when DIVIDE succeeds.
+#[derive(Debug, Clone)]
+pub struct BirthRecord {
+    pub parent_id: u64,
+    pub child_id: u64,
+    pub tick: u64,
+    /// Indices of code cells that differ between parent and child (mutations).
+    pub mutation_sites: Vec<usize>,
+}
+
+impl BirthRecord {
+    /// CSV header for lineage output.
+    pub fn csv_header() -> &'static str {
+        "parent_id,child_id,tick,mutations,mutation_sites"
+    }
+
+    pub fn to_csv(&self) -> String {
+        let sites = self.mutation_sites.iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(";");
+        format!(
+            "{},{},{},{},\"{}\"",
+            self.parent_id, self.child_id, self.tick,
+            self.mutation_sites.len(),
+            sites,
+        )
+    }
+}
+
+/// Stores all birth records for a simulation run. Supports lineage queries.
+pub struct LineageStore {
+    pub records: Vec<BirthRecord>,
+}
+
+impl LineageStore {
+    pub fn new() -> Self {
+        LineageStore { records: Vec::new() }
+    }
+
+    pub fn record(&mut self, r: BirthRecord) {
+        self.records.push(r);
+    }
+
+    /// Trace ancestry of `id` back to the earliest known ancestor.
+    /// Returns the chain from `id` up to the root (inclusive), oldest last.
+    pub fn ancestors(&self, id: u64) -> Vec<u64> {
+        let mut chain = vec![id];
+        let mut current = id;
+        loop {
+            if let Some(rec) = self.records.iter().find(|r| r.child_id == current) {
+                chain.push(rec.parent_id);
+                current = rec.parent_id;
+            } else {
+                break;
+            }
+        }
+        chain
+    }
+
+    /// Write all records to a CSV file.
+    pub fn write_csv(&self, path: &str) -> std::io::Result<()> {
+        let _ = fs::create_dir_all(std::path::Path::new(path).parent().unwrap_or(std::path::Path::new(".")));
+        let mut f = fs::File::create(path)?;
+        writeln!(f, "{}", BirthRecord::csv_header())?;
+        for r in &self.records {
+            writeln!(f, "{}", r.to_csv())?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CellOrganism {
     pub cells: Vec<Cell>,
@@ -71,6 +147,7 @@ pub struct CellOrganism {
     pub alive: bool,
     pub age: u64,
     pub generation: u32,
+    pub id: u64,            // unique organism ID (assigned by CellWorld)
 
     // Counters
     pub eat_count: u64,
@@ -78,6 +155,10 @@ pub struct CellOrganism {
     pub refresh_count: u64,
     pub divide_count: u64,
     pub total_instructions: u64,
+
+    // Pending birth record: (parent_id, birth_tick, mutation_sites).
+    // Set by DIVIDE, consumed by CellWorld.add_organism() to emit a BirthRecord.
+    pub _pending_birth: Option<(u64, u64, Vec<usize>)>,
 }
 
 impl CellOrganism {
@@ -89,11 +170,13 @@ impl CellOrganism {
             alive: true,
             age: 0,
             generation: 0,
+            id: 0, // assigned by CellWorld.add_organism()
             eat_count: 0,
             digest_count: 0,
             refresh_count: 0,
             divide_count: 0,
             total_instructions: 0,
+            _pending_birth: None,
         }
     }
 
@@ -196,6 +279,7 @@ pub struct CellConfig {
     pub complex_food_rate: i32,   // Complex food per tick
     pub medium_size: usize,       // Stigmergy medium for SAMPLE instruction
     pub data_cell_gating: bool,   // Enable GATE instruction (Data cell as code switch)
+    pub lineage_tracking: bool,   // Enable BirthRecord lineage tracking
     pub total_ticks: u64,
     pub snapshot_interval: u64,
     pub genome_dump_interval: u64,
@@ -220,6 +304,7 @@ impl CellConfig {
             complex_food_rate: 10,
             medium_size: 0,
             data_cell_gating: false,
+            lineage_tracking: false,
             total_ticks: 500_000,
             snapshot_interval: 1000,
             genome_dump_interval: 50_000,
@@ -285,6 +370,10 @@ pub struct CellWorld {
     pub config: CellConfig,
     pub rng: StdRng,
     pub snapshots: Vec<CellSnapshot>,
+    pub lineage: LineageStore,  // Birth records (populated when config.lineage_tracking=true)
+
+    // ID counter — monotonically increasing across all births
+    next_id: u64,
 
     // Interval counters
     interval_eat: u64,
@@ -308,6 +397,8 @@ impl CellWorld {
             config,
             rng: StdRng::seed_from_u64(seed),
             snapshots: Vec::new(),
+            lineage: LineageStore::new(),
+            next_id: 0,
             interval_eat: 0,
             interval_eat_simple: 0,
             interval_eat_complex: 0,
@@ -318,10 +409,30 @@ impl CellWorld {
         }
     }
 
-    pub fn add_organism(&mut self, org: CellOrganism) {
+    pub fn add_organism(&mut self, mut org: CellOrganism) {
         if self.organisms.len() < self.config.max_organisms {
+            org.id = self.next_id;
+            self.next_id += 1;
+            // Consume pending birth record if lineage tracking is enabled
+            if self.config.lineage_tracking {
+                if let Some((parent_id, tick, mutation_sites)) = org._pending_birth.take() {
+                    self.lineage.record(BirthRecord {
+                        parent_id,
+                        child_id: org.id,
+                        tick,
+                        mutation_sites,
+                    });
+                }
+            } else {
+                org._pending_birth = None;
+            }
             self.organisms.push(org);
         }
+    }
+
+    /// Write lineage CSV to the given path. No-op if lineage_tracking=false.
+    pub fn write_lineage_csv(&self, path: &str) -> std::io::Result<()> {
+        self.lineage.write_csv(path)
     }
 
     pub fn take_snapshot(&mut self) {
@@ -577,11 +688,15 @@ impl CellWorld {
                     // Clone cells, mutate code cells
                     let mut child_cells = org.cells.clone();
                     let mutation_rate = config.mutation_rate;
+                    let mut mutation_sites: Vec<usize> = Vec::new();
+                    let mut code_idx = 0usize;
                     for cell in child_cells.iter_mut() {
                         if let CellType::Code(ref mut instr) = cell.content {
                             if self.rng.gen_bool(mutation_rate.min(1.0)) {
                                 *instr = instr.mutate(&mut self.rng);
+                                mutation_sites.push(code_idx);
                             }
+                            code_idx += 1;
                         }
                         cell.freshness = config.freshness_max; // fresh child
                     }
@@ -604,8 +719,12 @@ impl CellWorld {
                     // Deduct divide cost from parent
                     org.deduct_energy(config.divide_cost);
 
+                    let parent_id = org.id;
+                    let child_tick = self.tick;
+
                     let mut child = CellOrganism::new(child_cells);
                     child.generation = org.generation + 1;
+                    child._pending_birth = Some((parent_id, child_tick, mutation_sites));
                     new_organism = Some(child);
                 }
                 org.ip += 1;
