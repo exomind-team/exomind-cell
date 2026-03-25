@@ -1,99 +1,79 @@
-# Experiment Index
+# D0 VM Experiment Registry
 
-## Standard Parameters
+## Experiment Numbering
 
-| Parameter | Value |
-|-----------|-------|
-| Population cap | 100 |
-| Initial organisms | 10 Seed A + 10 Seed B |
-| Food per tick | 50 |
-| Mutation rate | 0.001 |
-| Total ticks | 100,000 |
-| Freshness max | 255 |
-| E_MAX | 1000 |
-| Eat energy | 10 |
-| Instruction cost | 1 |
-| Refresh cost | 1 |
-| Divide cost | 30 |
-| Initial energy | 100 |
-| Snapshot interval | 1,000 ticks |
-| Genome dump interval | 10,000 ticks |
+| ID | Name | VM | Ticks | Seeds | Key Parameter | Status |
+|----|------|----|-------|-------|---------------|--------|
+| EXP-001 | Operational closure vs control | v2 | 100k | 42 | freshness_decay on/off | Complete |
+| EXP-002 | Multi-seed validation (E_MAX=1000) | v2 | 500k | 42,137,256,999,2026 | E_MAX=1000 | Complete |
+| EXP-003 | E_MAX impact analysis | v2 | 500k | 42 | E_MAX=1000 vs unlimited | Complete |
+| EXP-004 | Stigmergy communication | v2 | 100k | 42 | medium_size=256 vs 0 | Complete |
+| EXP-005 | Cell v3 multi-seed (CEM=50) | v3 | 500k | 42,137,256,999,2026 | CEM=50, R=5 | Complete |
+| EXP-006 | REFRESH radius gradient | v3 | 500k | 42 | R=1,2,3,5,8; CEM=50 | Complete |
+| EXP-007 | Data cell exploration | v3 | 500k | 42 | with/without Data cell | Complete |
 
-## Experiment 1: Operational Closure (5 seeds)
+---
 
-**Question**: Does freshness decay drive evolution of self-maintenance behavior?
+## EXP-001: Operational Closure vs Control
 
-| File | Group | Seed | Description |
-|------|-------|------|-------------|
-| `experimental_seed_42.csv` | Experimental | 42 | freshness_decay = true |
-| `control_seed_42.csv` | Control | 42 | freshness_decay = false |
-| `experimental_seed_137.csv` | Experimental | 137 | freshness_decay = true |
-| `control_seed_137.csv` | Control | 137 | freshness_decay = false |
-| `experimental_seed_256.csv` | Experimental | 256 | freshness_decay = true |
-| `control_seed_256.csv` | Control | 256 | freshness_decay = false |
-| `experimental_seed_999.csv` | Experimental | 999 | freshness_decay = true |
-| `control_seed_999.csv` | Control | 999 | freshness_decay = false |
-| `experimental_seed_2026.csv` | Experimental | 2026 | freshness_decay = true |
-| `control_seed_2026.csv` | Control | 2026 | freshness_decay = false |
+- **Hypothesis**: Freshness decay drives evolution of conditional survival-priority behavior
+- **Parameters**: food_per_tick=50, E_MAX=1000, 100k ticks, seed=42
+- **Prediction**: Exp group shows higher REFRESH ratio than control
+- **Data**: `data/experimental_group.csv`, `data/control_group.csv`
+- **Reproduce**: `cargo run --release`
+- **Result**: REFRESH retained by selection in exp (23%), declining by drift in ctrl (19%)
 
-**Result**: REFRESH ratio is 19.7% (+/- 1.0%) in experimental vs 13.9% (+/- 5.4%) in control. Freshness decay maintains REFRESH under positive selection.
+## EXP-002: Multi-Seed Validation
 
-## Experiment 2: Food Competition (7 levels)
+- **Hypothesis**: EXP-001 results hold across 5 random seeds
+- **Parameters**: 500k ticks, seeds=[42,137,256,999,2026], E_MAX=1000
+- **Data**: `data/v3_exp_*.csv`, `data/v3_ctrl_*.csv`
+- **Reproduce**: `cargo run --release`
+- **Result**: REFRESH Exp 24.5%+/-4.6% vs Ctrl 21.4%+/-6.5%. Confirmed across 5 seeds
 
-**Question**: How does food scarcity affect population dynamics and behavior?
+## EXP-003: E_MAX Impact Analysis
 
-| File | Food/tick | Description |
-|------|-----------|-------------|
-| `competition_food_10.csv` | 10 | Extreme scarcity |
-| `competition_food_20.csv` | 20 | High scarcity |
-| `competition_food_30.csv` | 30 | Moderate scarcity |
-| `competition_food_40.csv` | 40 | Reproduction threshold |
-| `competition_food_50.csv` | 50 | Standard (same as Exp 1) |
-| `competition_food_75.csv` | 75 | Moderate abundance |
-| `competition_food_100.csv` | 100 | High abundance |
+- **Hypothesis**: Energy cap amplifies exp/ctrl behavioral difference
+- **Parameters**: seed=42, 500k ticks, E_MAX=1000 vs unlimited
+- **Data**: `data/v3_emax_unlimited_*.csv`
+- **Reproduce**: `cargo run --release`
+- **Result**: With cap REFRESH delta=+9.8%, without cap delta=+1.9%
 
-**Result**: food_per_tick ~40 is the threshold where DIVIDE first appears. Below 40, 0% DIVIDE (pure survival). Above 40, 6-8% DIVIDE.
+## EXP-004: Stigmergy Communication
 
-## Genome Dumps
+- **Hypothesis**: Shared medium enables indirect coordination
+- **Parameters**: seed=42, 100k ticks, medium_size=256 vs 0
+- **Data**: `data/stigmergy_*.csv`
+- **Result**: With medium DIVIDE +2.9%, REFRESH -6.1%. Signal-triggered DIVIDE works
 
-Each experiment has a corresponding `*_genomes.txt` file containing the code of the oldest and most-evolved organisms at 10k-tick intervals.
+## EXP-005: Cell v3 Multi-Seed (CEM=50)
 
-## CSV Column Reference
+- **Hypothesis**: Per-cell freshness produces measurably different behavior
+- **Parameters**: CEM=50, R=5, 500k ticks, 5 seeds
+- **Data**: `data/cell50_exp_*.csv`, `data/cell50_ctrl_*.csv`
+- **Reproduce**: `cargo run --release -- --cell`
+- **Result**: Exp REFRESH variance (1-24%) >> Ctrl (~14%). Strategy diversification confirmed
 
-```
-tick, population, avg_energy, avg_code_length, avg_age, avg_freshness,
-total_eat, total_refresh, total_divide, total_instructions,
-eat_ratio, refresh_ratio, divide_ratio,
-low_energy_eat_rate, low_freshness_refresh_rate, max_generation
-```
+## EXP-006: REFRESH Radius Gradient
 
-All ratios are computed over the 1000-tick snapshot interval.
+- **Hypothesis**: R controls strictness of operational closure constraint
+- **Parameters**: CEM=50, seed=42, 500k ticks, R=1/2/3/5/8
+- **Data**: `data/cellR*_exp.csv`, `data/cellR*_ctrl.csv`
+- **Reproduce**: `cargo run --release -- --cell`
+- **Result**: R=1,2: REFRESH=0% (abandoned). R=3: max divergence. R=8: REFRESH=18%, DIVIDE=0%
 
-## Experiment 3: Cell v3 (per-cell freshness)
+## EXP-007: Data Cell Exploration
 
-Run with `cargo run --release -- --cell`.
+- **Hypothesis**: Data cells enable experience-based decision-making
+- **Parameters**: CEM=50, R=5, seed=42, 500k ticks, with/without Seed D
+- **Data**: `data/cell_data_*.csv`, `data/cell_nodata_*.csv`
+- **Reproduce**: `cargo run --release -- --cell`
+- **Result**: With Data: energy 119 vs 79, DIVIDE 10.3% vs 8.9%. Preliminary
 
-### Experiment A: Exp vs Ctrl (3 seeds, 500k ticks)
+---
 
-| File | Group | Seed |
-|------|-------|------|
-| `data/cell_exp_42.csv` | Experimental | 42 |
-| `data/cell_ctrl_42.csv` | Control | 42 |
-| `data/cell_exp_137.csv` | Experimental | 137 |
-| `data/cell_ctrl_137.csv` | Control | 137 |
-| `data/cell_exp_256.csv` | Experimental | 256 |
-| `data/cell_ctrl_256.csv` | Control | 256 |
+## CSV Columns
 
-### Experiment B: CELL_ENERGY_MAX gradient
+### v2: `tick,population,avg_energy,avg_code_length,avg_age,avg_freshness,total_eat,total_refresh,total_divide,total_instructions,eat_ratio,refresh_ratio,divide_ratio,low_energy_eat_rate,low_freshness_refresh_rate,max_generation`
 
-| File | CEM |
-|------|-----|
-| `data/cell_cem_5.csv` | 5 |
-| `data/cell_cem_10.csv` | 10 |
-| `data/cell_cem_20.csv` | 20 |
-| `data/cell_cem_50.csv` | 50 |
-
-## Full Analysis
-
-- v2 results: [RESULTS.md](../RESULTS.md)
-- v3 cell results: [CELL_RESULTS.md](../CELL_RESULTS.md)
+### v3: `tick,population,avg_energy,avg_cell_count,avg_code_count,avg_freshness,max_generation,eat_ratio,digest_ratio,refresh_ratio,divide_ratio,total_instructions`

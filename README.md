@@ -22,7 +22,8 @@ cargo run --release -- --tui --stigmergy     # with EMIT/SAMPLE
 cargo test
 ```
 
-Results: `RESULTS.md` (v2) and `CELL_RESULTS.md` (v3). CSV data in `data/`.
+Results: [RESULTS.md](RESULTS.md) (consolidated, 7 experiments). CSV data in `data/`.
+Experiment registry: [docs/experiments.md](docs/experiments.md).
 
 ## Two VM Modes
 
@@ -84,7 +85,7 @@ docs/
 
 - **Language**: Rust (2021 edition)
 - **Dependencies**: `rand 0.8`, `ratatui 0.29`, `crossterm 0.28`
-- **Tests**: 17 unit tests via `cargo test`
+- **Tests**: 21 unit tests via `cargo test`
 
 ## License
 

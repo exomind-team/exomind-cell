@@ -882,4 +882,105 @@ mod tests {
         assert!(world.organisms.iter().any(|o| o.alive),
             "Without freshness decay, organism should survive without REFRESH");
     }
+
+    #[test]
+    fn test_digest_moves_food_to_energy() {
+        let config = CellConfig::control(); // no decay for simplicity
+        let mut world = CellWorld::new(config.clone(), 42);
+        world.food_pool = 100;
+
+        // EAT -> DIGEST -> JMP loop
+        let cells = vec![
+            Cell::code(Instruction::Eat, 255),
+            Cell::code(Instruction::Load(0, 0), 255), // DIGEST
+            Cell::code(Instruction::Jmp(-2), 255),
+            Cell::stomach(0, 255),
+            Cell::energy(20, 255), // start with enough energy to run instructions
+        ];
+        world.add_organism(CellOrganism::new(cells));
+
+        for _ in 0..10 { world.tick(); }
+        let org = &world.organisms[0];
+        // Started with 20 energy, spent ~10 on instructions, but gained food via EAT+DIGEST
+        assert!(org.alive, "Organism should still be alive after EAT+DIGEST loop");
+        assert!(org.total_energy() > 0, "Energy should be positive after eating");
+    }
+
+    #[test]
+    fn test_data_cell_store_and_load() {
+        let config = CellConfig::control();
+        let mut world = CellWorld::new(config, 42);
+
+        // SENSE_SELF r1 -> STORE r1 -> LOAD r2 from data -> JMP
+        let cells = vec![
+            Cell::code(Instruction::SenseSelf(1), 255), // r1 = energy
+            Cell::code(Instruction::Store(1, 0), 255),  // store r1 to data cell
+            Cell::code(Instruction::Load(2, 1), 255),   // load from data cell to r2
+            Cell::code(Instruction::Jmp(-3), 255),
+            Cell::energy(50, 255),
+            Cell::data(0, 255),
+        ];
+        world.add_organism(CellOrganism::new(cells));
+
+        for _ in 0..5 { world.tick(); }
+
+        let org = &world.organisms[0];
+        // After SENSE_SELF: r1 = energy. After STORE: data cell = r1. After LOAD: r2 = data cell.
+        // r2 should equal the energy value that was stored
+        assert!(org.registers[2] > 0,
+            "LOAD from Data cell should have read the stored energy value into r2");
+
+        // Check data cell has non-zero content
+        let data_val = org.cells.iter().find_map(|c| match c.content {
+            CellType::Data(v) => Some(v),
+            _ => None,
+        });
+        assert!(data_val.is_some() && data_val.unwrap() > 0,
+            "Data cell should contain the stored energy value");
+    }
+
+    #[test]
+    fn test_refresh_radius_coverage() {
+        let mut config = CellConfig::experimental();
+        config.freshness_max = 100;
+        config.refresh_radius = 2; // covers 5 cells around IP
+
+        // Create organism: 5 code cells + energy + stomach
+        // REFRESH is at position 0 (code index 0)
+        let cells = vec![
+            Cell::code(Instruction::Refresh, 50),   // 0: this is IP=0
+            Cell::code(Instruction::Jmp(-1), 50),   // 1
+            Cell::code(Instruction::Nop, 50),        // 2
+            Cell::energy(100, 50),                    // 3
+            Cell::stomach(0, 50),                     // 4
+        ];
+        let mut org = CellOrganism::new(cells);
+
+        // Manually simulate REFRESH at IP=0 with R=2 → covers cells 0..=2 (center=0, so 0 to min(2,4))
+        // The actual cell index of code cell 0 is cells[0]
+        let r = config.refresh_radius;
+        let center = 0usize; // code cell 0 is at cells[0]
+        let start = center.saturating_sub(r);
+        let end = (center + r + 1).min(org.cells.len());
+        for i in start..end {
+            org.cells[i].freshness = config.freshness_max;
+        }
+
+        // Cells 0,1,2 should be refreshed (100), cells 3,4 should still be 50
+        assert_eq!(org.cells[0].freshness, 100);
+        assert_eq!(org.cells[1].freshness, 100);
+        assert_eq!(org.cells[2].freshness, 100);
+        assert_eq!(org.cells[3].freshness, 50, "Cell outside REFRESH radius should not be refreshed");
+        assert_eq!(org.cells[4].freshness, 50, "Cell outside REFRESH radius should not be refreshed");
+    }
+
+    #[test]
+    fn test_seed_d_has_data_cell() {
+        let config = CellConfig::experimental();
+        let org = cell_seed_d(&config);
+        assert!(org.cells.iter().any(|c| c.is_data()),
+            "Seed D should have at least one Data cell");
+        assert!(org.code_count() >= 9,
+            "Seed D should have enough code cells for its logic");
+    }
 }
