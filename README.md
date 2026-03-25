@@ -23,8 +23,8 @@ cargo run --release -- --tui --cell --no-decay  # v3 control group
 cargo test                                    # 24 unit tests
 ```
 
-<!-- TUI screenshot placeholder -->
-<!-- ![TUI Screenshot](docs/tui-screenshot.png) -->
+<!-- To capture TUI screenshot: run `cargo run --release -- --tui`, wait a few seconds, then screenshot -->
+<!-- ![TUI Screenshot](docs/screenshots/tui-running.png) -->
 
 Results: [RESULTS.md](RESULTS.md) (consolidated, 7 experiments). CSV data in `data/`.
 Experiment registry: [docs/experiments.md](docs/experiments.md).
