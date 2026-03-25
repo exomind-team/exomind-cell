@@ -20,6 +20,7 @@ pub enum CellType {
     Code(Instruction),
     Energy(u8),    // stored energy (0..cell_energy_max)
     Stomach(u8),   // undigested food (0..cell_energy_max)
+    Data(u8),      // writable storage (for experience/memory, D2 prep)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,9 +39,13 @@ impl Cell {
     pub fn stomach(amount: u8, freshness: u8) -> Self {
         Cell { content: CellType::Stomach(amount), freshness }
     }
+    pub fn data(val: u8, freshness: u8) -> Self {
+        Cell { content: CellType::Data(val), freshness }
+    }
     pub fn is_code(&self) -> bool { matches!(self.content, CellType::Code(_)) }
     pub fn is_energy(&self) -> bool { matches!(self.content, CellType::Energy(_)) }
     pub fn is_stomach(&self) -> bool { matches!(self.content, CellType::Stomach(_)) }
+    pub fn is_data(&self) -> bool { matches!(self.content, CellType::Data(_)) }
 }
 
 impl fmt::Display for Cell {
@@ -49,6 +54,7 @@ impl fmt::Display for Cell {
             CellType::Code(instr) => write!(f, "Code({}) f={}", instr, self.freshness),
             CellType::Energy(e) => write!(f, "Energy({}) f={}", e, self.freshness),
             CellType::Stomach(s) => write!(f, "Stomach({}) f={}", s, self.freshness),
+            CellType::Data(d) => write!(f, "Data({}) f={}", d, self.freshness),
         }
     }
 }
@@ -418,9 +424,20 @@ impl CellWorld {
                 org.ip += 1;
             }
 
-            // DIGEST: Stomach -> Energy cell
-            Instruction::Load(_, _) => {
-                // Repurpose LOAD as DIGEST in cell mode
+            // LOAD(r, 0) = DIGEST: Stomach -> Energy cell
+            // LOAD(r, 1+) = read from first Data cell into register r
+            Instruction::Load(r, idx) => {
+                if idx > 0 {
+                    // Read from Data cell
+                    let r = (r as usize) % 8;
+                    if let Some(data_cell) = org.cells.iter().find(|c| c.is_data()) {
+                        if let CellType::Data(val) = data_cell.content {
+                            org.registers[r] = val as i32;
+                        }
+                    }
+                    org.ip += 1;
+                } else {
+                // DIGEST mode
                 org.digest_count += 1;
                 self.interval_digest += 1;
                 let cem = config.cell_energy_max;
@@ -454,6 +471,7 @@ impl CellWorld {
                     }
                 }
                 org.ip += 1;
+                } // end else (DIGEST mode)
             }
 
             Instruction::Refresh => {
@@ -528,8 +546,18 @@ impl CellWorld {
                 org.ip += 1;
             }
 
-            // Instructions not relevant in cell mode: pass through as NOP
-            Instruction::Store(_, _) | Instruction::Emit(_) | Instruction::Sample(_) => {
+            // STORE(r, _): write register r value to first Data cell
+            Instruction::Store(r, _) => {
+                let r = (r as usize) % 8;
+                let val = (org.registers[r] & 0xFF) as u8;
+                if let Some(data_cell) = org.cells.iter_mut().find(|c| c.is_data()) {
+                    data_cell.content = CellType::Data(val);
+                }
+                org.ip += 1;
+            }
+
+            // EMIT/SAMPLE: not implemented in cell mode
+            Instruction::Emit(_) | Instruction::Sample(_) => {
                 org.ip += 1;
             }
         }
@@ -674,6 +702,39 @@ pub fn cell_seed_b(config: &CellConfig) -> CellOrganism {
     org
 }
 
+/// Seed D: Self-sustaining + Data cell for experience storage.
+///
+/// Strategy: EAT, DIGEST, REFRESH, then SENSE_SELF into r1, STORE r1 to Data cell
+/// (recording energy level). Next loop: LOAD from Data cell into r2 (previous energy),
+/// SENSE_SELF into r1 (current energy), CMP r1 r2 (is energy increasing?).
+/// If energy increasing (r0=1), try DIVIDE. If not, just loop.
+/// This creates a primitive "experience": the organism compares current state to
+/// a remembered past state to make decisions.
+pub fn cell_seed_d(config: &CellConfig) -> CellOrganism {
+    let f = config.freshness_max;
+    let cem = config.cell_energy_max;
+    let cells = vec![
+        Cell::code(Instruction::Eat, f),             // 0: eat
+        Cell::code(Instruction::Load(0, 0), f),      // 1: DIGEST (load idx=0)
+        Cell::code(Instruction::Refresh, f),          // 2: refresh
+        Cell::code(Instruction::Load(2, 1), f),      // 3: r2 = Data cell (previous energy)
+        Cell::code(Instruction::SenseSelf(1), f),     // 4: r1 = current energy
+        Cell::code(Instruction::Store(1, 0), f),     // 5: store current energy to Data cell
+        Cell::code(Instruction::Cmp(1, 2), f),       // 6: r0 = (current > previous)?
+        Cell::code(Instruction::Jnz(2), f),          // 7: if improving, skip to DIVIDE
+        Cell::code(Instruction::Jmp(-8), f),          // 8: loop back
+        Cell::code(Instruction::Divide, f),           // 9: divide (energy increasing!)
+        Cell::code(Instruction::Jmp(-10), f),         // 10: loop back
+        Cell::stomach(0, f),
+        Cell::stomach(0, f),
+        Cell::energy(cem, f),
+        Cell::energy(cem, f),
+        Cell::energy(cem / 2, f),
+        Cell::data(0, f),  // Data cell: stores previous energy reading
+    ];
+    CellOrganism::new(cells)
+}
+
 // ============================================================================
 // Experiment runner
 // ============================================================================
@@ -728,6 +789,28 @@ pub fn run_cell_experiment(name: &str, config: CellConfig, seed: u64) -> Vec<Cel
 
     for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
     for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+
+    world.run();
+
+    let safe_name = name.replace(' ', "_");
+    world.export_csv(&format!("D:/project/d0-vm/data/{}.csv", safe_name));
+
+    world.snapshots
+}
+
+/// Run cell experiment with Seed D (Data cell) organisms included.
+pub fn run_cell_data_experiment(name: &str, config: CellConfig, seed: u64) -> Vec<CellSnapshot> {
+    eprintln!("\n========================================");
+    eprintln!("Running CELL+DATA experiment: {}", name);
+    eprintln!("  freshness_decay={}, cell_energy_max={}, refresh_radius={}",
+        config.freshness_decay, config.cell_energy_max, config.refresh_radius);
+    eprintln!("========================================");
+
+    let mut world = CellWorld::new(config.clone(), seed);
+
+    for _ in 0..5 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..5 { world.add_organism(cell_seed_b(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_d(&config)); }
 
     world.run();
 
