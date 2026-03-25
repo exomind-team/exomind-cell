@@ -236,34 +236,38 @@ fn main() {
 // ============================================================================
 
 fn run_cell_experiments() {
-    eprintln!("D0 Virtual Machine — Cell-based v3 Experiments");
-    eprintln!("===============================================\n");
+    eprintln!("D0 Virtual Machine — Cell-based v3 Experiments (Paper Edition)");
+    eprintln!("==============================================================\n");
 
-    let seeds: Vec<u64> = vec![42, 137, 256];
     let mut report = String::new();
-    report.push_str("# D0 VM Cell-based v3 Experiment Results\n\n");
+    report.push_str("# D0 VM Cell-based v3 Experiment Results (Paper Edition)\n\n");
     report.push_str("## Architecture\n\n");
     report.push_str("- **Unified Cell system**: Code/Energy/Stomach cells with per-cell freshness\n");
     report.push_str("- **Two-step digestion**: EAT (food pool -> Stomach) + DIGEST (Stomach -> Energy)\n");
     report.push_str("- **Local REFRESH**: refreshes cells within radius R of current IP position\n");
-    report.push_str("- **Gradual degradation**: individual cells die (freshness=0), not instant organism death\n\n");
+    report.push_str("- **Gradual degradation**: individual cells die (freshness=0), not instant organism death\n");
+    report.push_str("- **CEM=50** (cell energy max): required for DIVIDE to emerge\n\n");
 
     // =========================================================================
-    // Experiment A: 3-seed exp vs ctrl (500k ticks)
+    // Experiment 1: Multi-seed CEM=50 (5 seeds, exp+ctrl, 500k ticks)
     // =========================================================================
-    report.push_str("## Experiment A: Cell v3 Exp vs Ctrl (3 seeds, 500k ticks)\n\n");
+    let seeds: Vec<u64> = vec![42, 137, 256, 999, 2026];
+
+    report.push_str("## Experiment 1: Multi-Seed Validation (CEM=50, R=5, 5 seeds, 500k ticks)\n\n");
     report.push_str("| Seed | Group | Survived | Avg Pop | Avg Energy | EAT% | DIGEST% | REFRESH% | DIVIDE% |\n");
     report.push_str("|------|-------|----------|---------|-----------|------|---------|----------|--------|\n");
 
     for &seed in &seeds {
-        eprintln!(">>> Cell Experiment A, seed {}", seed);
+        eprintln!(">>> Experiment 1: seed {}", seed);
 
-        let exp = CellConfig::experimental();
-        let exp_snap = run_cell_experiment(&format!("cell_exp_{}", seed), exp, seed);
+        let mut exp = CellConfig::experimental();
+        exp.cell_energy_max = 50;
+        let exp_snap = run_cell_experiment(&format!("cell50_exp_{}", seed), exp, seed);
         let exp_ss = cell_compute_steady_state(&exp_snap);
 
-        let ctrl = CellConfig::control();
-        let ctrl_snap = run_cell_experiment(&format!("cell_ctrl_{}", seed), ctrl, seed);
+        let mut ctrl = CellConfig::control();
+        ctrl.cell_energy_max = 50;
+        let ctrl_snap = run_cell_experiment(&format!("cell50_ctrl_{}", seed), ctrl, seed);
         let ctrl_ss = cell_compute_steady_state(&ctrl_snap);
 
         for (group, ss) in [("Exp", &exp_ss), ("Ctrl", &ctrl_ss)] {
@@ -278,28 +282,39 @@ fn run_cell_experiments() {
     }
 
     // =========================================================================
-    // Experiment B: CELL_ENERGY_MAX gradient (seed=42)
+    // Experiment 2: REFRESH radius gradient (CEM=50, seed=42)
     // =========================================================================
-    report.push_str("\n## Experiment B: CELL_ENERGY_MAX Gradient (seed=42, 500k ticks)\n\n");
-    report.push_str("| CEM | Survived | Avg Pop | Avg Energy | EAT% | DIGEST% | REFRESH% | DIVIDE% |\n");
-    report.push_str("|-----|----------|---------|-----------|------|---------|----------|--------|\n");
+    report.push_str("\n## Experiment 2: REFRESH Radius Gradient (CEM=50, seed=42, 500k ticks)\n\n");
+    report.push_str("| R | Group | Survived | Avg Pop | Avg Energy | EAT% | DIGEST% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|---|-------|----------|---------|-----------|------|---------|----------|--------|\n");
 
-    for cem in [5u8, 10, 20, 50] {
-        eprintln!(">>> Cell Experiment B, cell_energy_max={}", cem);
-        let mut config = CellConfig::experimental();
-        config.cell_energy_max = cem;
-        let snap = run_cell_experiment(&format!("cell_cem_{}", cem), config, 42);
-        let ss = cell_compute_steady_state(&snap);
-        report.push_str(&format!(
-            "| {} | {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
-            cem, if ss.survived { "YES" } else { "NO" },
-            ss.avg_population, ss.avg_energy,
-            ss.eat_ratio * 100.0, ss.digest_ratio * 100.0,
-            ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
-        ));
+    for r in [1usize, 2, 3, 5, 8] {
+        eprintln!(">>> Experiment 2: R={}", r);
+
+        let mut exp = CellConfig::experimental();
+        exp.cell_energy_max = 50;
+        exp.refresh_radius = r;
+        let exp_snap = run_cell_experiment(&format!("cellR{}_exp", r), exp, 42);
+        let exp_ss = cell_compute_steady_state(&exp_snap);
+
+        let mut ctrl = CellConfig::control();
+        ctrl.cell_energy_max = 50;
+        ctrl.refresh_radius = r;
+        let ctrl_snap = run_cell_experiment(&format!("cellR{}_ctrl", r), ctrl, 42);
+        let ctrl_ss = cell_compute_steady_state(&ctrl_snap);
+
+        for (group, ss) in [("Exp", &exp_ss), ("Ctrl", &ctrl_ss)] {
+            report.push_str(&format!(
+                "| {} | {} | {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+                r, group, if ss.survived { "YES" } else { "NO" },
+                ss.avg_population, ss.avg_energy,
+                ss.eat_ratio * 100.0, ss.digest_ratio * 100.0,
+                ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
+            ));
+        }
     }
 
-    report.push_str("\n---\n\n*Generated by D0 VM v3 Cell-based experiments*\n");
+    report.push_str("\n---\n\n*Generated by D0 VM v3 Cell-based experiments (paper edition)*\n");
 
     fs::write("D:/project/d0-vm/CELL_RESULTS.md", &report).expect("Failed to write CELL_RESULTS.md");
     eprintln!("\nCell results written to CELL_RESULTS.md");
