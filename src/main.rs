@@ -23,13 +23,25 @@ use cell_vm::{CellConfig, run_cell_experiment, run_cell_data_experiment, cell_co
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    // TUI mode (v2 only; cell v3 TUI is TODO)
+    // TUI mode
     if args.iter().any(|a| a == "--tui") {
         if args.iter().any(|a| a == "--cell") {
-            eprintln!("ERROR: --tui --cell combination not yet supported.");
-            eprintln!("TUI currently works with v2 mode only. Cell v3 TUI is TODO.");
+            // Cell v3 TUI
+            let mut config = CellConfig::experimental();
+            config.cell_energy_max = 50;
+            config.total_ticks = 500_000;
+            config.snapshot_interval = 100;
+            config.genome_dump_interval = 0;
+            if args.iter().any(|a| a == "--no-decay") {
+                config.freshness_decay = false;
+            }
+            eprintln!("Starting Cell v3 TUI mode...");
+            if let Err(e) = tui::run_cell_tui(config) {
+                eprintln!("TUI error: {}", e);
+            }
             return;
         }
+        // v2 TUI
         let mut config = Config::experimental();
         if args.iter().any(|a| a == "--no-decay") {
             config.freshness_decay = false;
@@ -41,7 +53,7 @@ fn main() {
         config.snapshot_interval = 100;
         config.genome_dump_interval = 0;
 
-        eprintln!("Starting TUI mode (v2)...");
+        eprintln!("Starting v2 TUI mode...");
         if let Err(e) = tui::run_tui(config) {
             eprintln!("TUI error: {}", e);
         }

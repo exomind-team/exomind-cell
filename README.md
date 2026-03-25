@@ -7,20 +7,24 @@ Part of the [Cognitive Life Science](https://github.com/exomind-team) research p
 ## Quick Start
 
 ```bash
-# v2: global energy/freshness experiments (5 seeds, 500k ticks)
-cargo run --release
-
-# v3: cell-based experiments (per-cell freshness, EAT/DIGEST/REFRESH)
-cargo run --release -- --cell
+# Headless experiments
+cargo run --release                          # v2 global energy (5 seeds, 500k ticks)
+cargo run --release -- --cell                # v3 cell-based (CEM=50, 5 seeds, 500k ticks)
+cargo run --release -- --stats               # 100-seed statistical analysis (rayon parallel, 2M ticks)
 
 # TUI: real-time terminal visualization
-cargo run --release -- --tui
-cargo run --release -- --tui --no-decay      # control group
-cargo run --release -- --tui --stigmergy     # with EMIT/SAMPLE
+cargo run --release -- --tui                 # v2 mode
+cargo run --release -- --tui --no-decay      # v2 control group
+cargo run --release -- --tui --stigmergy     # v2 with EMIT/SAMPLE
+cargo run --release -- --tui --cell          # v3 cell-based mode
+cargo run --release -- --tui --cell --no-decay  # v3 control group
 
 # Tests
-cargo test
+cargo test                                    # 24 unit tests
 ```
+
+<!-- TUI screenshot placeholder -->
+<!-- ![TUI Screenshot](docs/tui-screenshot.png) -->
 
 Results: [RESULTS.md](RESULTS.md) (consolidated, 7 experiments). CSV data in `data/`.
 Experiment registry: [docs/experiments.md](docs/experiments.md).

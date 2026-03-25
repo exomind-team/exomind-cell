@@ -3,6 +3,10 @@ name = "exomind-cell"
 version = "0.1.0"
 edition = "2021"
 description = "ExoMind Cell - Operational Closure virtual machine for Cognitive Life Science"
+authors = ["ExoMind Team"]
+license = "CCOPL-1.0"
+repository = "https://github.com/exomind-team/exomind-cell"
+readme = "README.md"
 
 [dependencies]
 rand = "0.8"

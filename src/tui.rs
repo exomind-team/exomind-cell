@@ -324,3 +324,194 @@ fn draw_ui(frame: &mut Frame, stats: &LiveStats, config: &Config) {
         .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(footer, main_layout[2]);
 }
+
+// ============================================================================
+// Cell TUI mode
+// ============================================================================
+
+use crate::cell_vm::{CellConfig, CellWorld, CellOrganism, cell_seed_a, cell_seed_b};
+
+/// Run the Cell v3 TUI visualization.
+pub fn run_cell_tui(config: CellConfig) -> io::Result<()> {
+    enable_raw_mode()?;
+    io::stdout().execute(EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+
+    let mut world = CellWorld::new(config.clone(), 42);
+    for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+
+    let mut pop_history: Vec<u64> = Vec::new();
+    let mut energy_history: Vec<u64> = Vec::new();
+    let ticks_per_frame = 50;
+    let frame_duration = Duration::from_millis(1000 / 30);
+
+    loop {
+        let frame_start = Instant::now();
+
+        if event::poll(Duration::from_millis(0))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
+                    break;
+                }
+            }
+        }
+
+        for _ in 0..ticks_per_frame {
+            if world.tick >= config.total_ticks { break; }
+            world.tick();
+        }
+
+        let alive: Vec<&CellOrganism> = world.organisms.iter().filter(|o| o.alive).collect();
+        let n = alive.len();
+        pop_history.push(n as u64);
+        let avg_e = if n > 0 {
+            alive.iter().map(|o| o.total_energy() as u64).sum::<u64>() / n as u64
+        } else { 0 };
+        energy_history.push(avg_e);
+
+        if pop_history.len() > 200 {
+            pop_history.drain(0..pop_history.len() - 200);
+            energy_history.drain(0..energy_history.len() - 200);
+        }
+
+        // Collect cell type counts
+        let (mut code_cells, mut energy_cells, mut stomach_cells, mut data_cells) = (0u64, 0u64, 0u64, 0u64);
+        let mut min_freshness_sum: f64 = 0.0;
+        let mut total_cells: u64 = 0;
+        let max_gen = alive.iter().map(|o| o.generation).max().unwrap_or(0);
+
+        for org in &alive {
+            for c in &org.cells {
+                total_cells += 1;
+                match c.content {
+                    crate::cell_vm::CellType::Code(_) => code_cells += 1,
+                    crate::cell_vm::CellType::Energy(_) => energy_cells += 1,
+                    crate::cell_vm::CellType::Stomach(_) => stomach_cells += 1,
+                    crate::cell_vm::CellType::Data(_) => data_cells += 1,
+                }
+            }
+            min_freshness_sum += org.min_freshness() as f64;
+        }
+        let avg_freshness = if n > 0 { min_freshness_sum / n as f64 } else { 0.0 };
+        let avg_energy_f = if n > 0 { alive.iter().map(|o| o.total_energy() as f64).sum::<f64>() / n as f64 } else { 0.0 };
+
+        let tick = world.tick;
+        let food = world.food_pool;
+        let total_ticks = config.total_ticks;
+        let cem = config.cell_energy_max;
+
+        terminal.draw(|frame| {
+            let area = frame.area();
+            let main_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(1)])
+                .split(area);
+
+            // Header
+            let header = Paragraph::new(format!(
+                " ExoMind Cell v3 | Tick: {}/{} ({:.0}%) | Pop: {} | Food: {} | Gen: {} ",
+                tick, total_ticks, (tick as f64 / total_ticks as f64) * 100.0,
+                n, food, max_gen,
+            ))
+            .block(Block::default().borders(Borders::ALL).title(" Cell VM "))
+            .style(Style::default().fg(Color::Cyan).bold());
+            frame.render_widget(header, main_layout[0]);
+
+            // Body
+            let body = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(main_layout[1]);
+
+            // Left: stats + cell distribution
+            let left = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(7), Constraint::Length(5), Constraint::Min(0)])
+                .split(body[0]);
+
+            let stats_text = vec![
+                Line::from(vec![
+                    Span::raw("  Avg Energy: "),
+                    Span::styled(format!("{:.0}", avg_energy_f), Style::default().fg(Color::Yellow)),
+                    Span::raw(format!("  (CEM={})", cem)),
+                ]),
+                Line::from(vec![
+                    Span::raw("  Min Fresh:  "),
+                    Span::styled(format!("{:.0}", avg_freshness), Style::default().fg(
+                        if avg_freshness > 200.0 { Color::Green }
+                        else if avg_freshness > 100.0 { Color::Yellow }
+                        else { Color::Red }
+                    )),
+                ]),
+                Line::from(vec![
+                    Span::raw("  Total Cells: "),
+                    Span::styled(format!("{}", total_cells), Style::default().fg(Color::White)),
+                ]),
+                Line::from(format!("  Decay: {}", if config.freshness_decay { "ON" } else { "OFF" })),
+            ];
+            let stats_w = Paragraph::new(stats_text)
+                .block(Block::default().borders(Borders::ALL).title(" Statistics "));
+            frame.render_widget(stats_w, left[0]);
+
+            // Cell type bar chart
+            let bar_data: Vec<(&str, u64)> = vec![
+                ("Code", code_cells),
+                ("Enrg", energy_cells),
+                ("Stom", stomach_cells),
+                ("Data", data_cells),
+            ];
+            let bars = BarChart::default()
+                .block(Block::default().borders(Borders::ALL).title(format!(
+                    " Cells: {}C {}E {}S {}D ",
+                    code_cells, energy_cells, stomach_cells, data_cells
+                )))
+                .data(&bar_data)
+                .bar_width(5)
+                .bar_gap(1)
+                .bar_style(Style::default().fg(Color::Green))
+                .value_style(Style::default().fg(Color::White).bold());
+            frame.render_widget(bars, left[1]);
+
+            // Right: sparklines
+            let right = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(body[1]);
+
+            let pop_spark = Sparkline::default()
+                .block(Block::default().borders(Borders::ALL).title(format!(" Population ({}) ", n)))
+                .data(&pop_history)
+                .max(config.max_organisms as u64)
+                .style(Style::default().fg(Color::Cyan));
+            frame.render_widget(pop_spark, right[0]);
+
+            let e_spark = Sparkline::default()
+                .block(Block::default().borders(Borders::ALL).title(format!(" Avg Energy ({:.0}) ", avg_energy_f)))
+                .data(&energy_history)
+                .max((cem as u64) * 5)
+                .style(Style::default().fg(Color::Yellow));
+            frame.render_widget(e_spark, right[1]);
+
+            let footer = Paragraph::new(" Press 'q' to quit ")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(footer, main_layout[2]);
+        })?;
+
+        if world.tick >= config.total_ticks {
+            loop {
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') { break; }
+                }
+            }
+            break;
+        }
+
+        let elapsed = frame_start.elapsed();
+        if elapsed < frame_duration { std::thread::sleep(frame_duration - elapsed); }
+    }
+
+    disable_raw_mode()?;
+    io::stdout().execute(LeaveAlternateScreen)?;
+    Ok(())
+}
