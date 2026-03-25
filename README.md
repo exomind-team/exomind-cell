@@ -18,6 +18,10 @@
 </p>
 
 <p align="center">
+  English | <a href="README-zh.md">中文</a>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/tui-stigmergy.png" width="800" alt="TUI Screenshot">
 </p>
 
