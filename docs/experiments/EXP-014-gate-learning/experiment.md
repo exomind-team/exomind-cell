@@ -25,9 +25,22 @@
 | DIVIDE | 0.0038 | [-0.0018, 0.0097] | 0.0000 | 0.183 |
 | Population | -7.7934 | [-9.8216, -5.6616] | 0.0000 | -1.037 |
 
+## Per-Round Meta-Analysis (100 independent rounds)
+
+Each round = one seed, both groups run independently, 1M ticks.
+
+| Metric | Rounds in predicted direction | Mean diff | SD | Win rate |
+|--------|-------------------------------|-----------|-----|----------|
+| REFRESH (exp > ctrl) | 78/100 | 0.0285 | 0.0875 | 78% |
+| EAT (exp > ctrl) | 62/100 | 0.0147 | 0.0731 | 62% |
+| Population (exp < ctrl) | 86/100 | -7.8 | 10.9 | 86% |
+
 ## Conclusion
 
-GATE mechanism produces measurable behavioral difference between history groups.
+GATE mechanism produces robust history-dependent behavior:
+- REFRESH effect in predicted direction in 78% of independent rounds
+- Population effect in 86% of rounds
+- Pooled REFRESH p<0.0001, d=0.459
 
 ---
-*EXP-014: GATE learning experiment*
+*EXP-014: GATE learning experiment (100 independent rounds)*
