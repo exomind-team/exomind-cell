@@ -1,0 +1,24 @@
+organism,position,cell_index,instruction,result,survival,energy,pop
+Seed_A (minimal survival),0,0,EAT,lethal,100,0,0
+Seed_A (minimal survival),1,1,LOAD r0 d0,lethal,100,0,0
+Seed_A (minimal survival),2,2,REFRESH,lethal,254,0,0
+Seed_A (minimal survival),3,3,JMP -3,neutral,10000,98,1
+Seed_B (conditional divide),0,0,EAT,lethal,62,0,0
+Seed_B (conditional divide),1,1,LOAD r0 d0,lethal,62,0,0
+Seed_B (conditional divide),2,2,REFRESH,neutral,10000,1151,8
+Seed_B (conditional divide),3,3,SENSE_SELF r1,lethal,254,0,0
+Seed_B (conditional divide),4,4,CMP r1 r5,lethal,254,0,0
+Seed_B (conditional divide),5,5,JNZ 2,lethal,254,0,0
+Seed_B (conditional divide),6,6,JMP -6,neutral,10000,877,6
+Seed_B (conditional divide),7,7,DIVIDE,lethal,254,0,0
+Seed_B (conditional divide),8,8,JMP -8,neutral,10000,1172,8
+Seed_G (GATE evaluation),0,0,SENSE_SELF r1,neutral,10000,950,10
+Seed_G (GATE evaluation),1,1,EAT,lethal,100,0,0
+Seed_G (GATE evaluation),2,2,LOAD r0 d0,lethal,100,0,0
+Seed_G (GATE evaluation),3,3,SENSE_SELF r2,lethal,346,0,0
+Seed_G (GATE evaluation),4,4,CMP r2 r1,lethal,346,0,0
+Seed_G (GATE evaluation),5,5,STORE r0 d0,lethal,346,0,0
+Seed_G (GATE evaluation),6,7,GATE,neutral,10000,950,10
+Seed_G (GATE evaluation),7,8,DIVIDE,lethal,352,0,0
+Seed_G (GATE evaluation),8,9,REFRESH,beneficial,10000,1075,26
+Seed_G (GATE evaluation),9,10,JMP -9,neutral,10000,968,15

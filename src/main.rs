@@ -15,6 +15,7 @@ mod cell_vm;
 mod stats;
 mod signal;
 mod lineage014;
+mod knockout;
 
 use std::fs;
 use std::io::Write as IoWrite;
@@ -87,6 +88,12 @@ fn main() {
     // EXP-014 GATE learning: cargo run -- --exp014
     if args.iter().any(|a| a == "--exp014") {
         run_exp014();
+        return;
+    }
+
+    // Knockout analysis: cargo run -- --knockout
+    if args.iter().any(|a| a == "--knockout") {
+        run_knockout_analysis();
         return;
     }
 
@@ -2439,4 +2446,57 @@ fn run_exp_cross() {
 
     eprintln!("\nResults: {}/experiment.md", dir);
     println!("{}", report);
+}
+
+// ============================================================================
+// Knockout analysis on seed organisms
+// ============================================================================
+
+fn run_knockout_analysis() {
+    use cell_vm::{cell_seed_a, cell_seed_b, cell_seed_g, CellConfig};
+
+    eprintln!("Knockout Analysis: Seed A, B, G");
+    eprintln!("================================\n");
+
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.data_cell_gating = true;
+
+    let seeds = [
+        ("Seed_A (minimal survival)", cell_seed_a(&config)),
+        ("Seed_B (conditional divide)", cell_seed_b(&config)),
+        ("Seed_G (GATE evaluation)", cell_seed_g(&config)),
+    ];
+
+    let mut full_report = String::new();
+    full_report.push_str("# Knockout Analysis: Minimum Essential Instruction Set\n\n");
+    full_report.push_str("Each Code cell replaced with NOP one at a time. Sandbox: 10k ticks, abundant food.\n\n");
+
+    let mut all_csv = String::from("organism,position,cell_index,instruction,result,survival,energy,pop\n");
+
+    for (name, org) in &seeds {
+        eprintln!("Analyzing {}...", name);
+        let results = knockout::analyze_knockout(org, &config, 42, 10_000);
+
+        full_report.push_str(&format!("## {}\n\n", name));
+        full_report.push_str(&format!("Code cells: {}, Total cells: {}\n\n", org.code_count(), org.cells.len()));
+        full_report.push_str("| Pos | Instruction | Result | Survival | Energy | Pop |\n");
+        full_report.push_str("|-----|------------|--------|----------|--------|-----|\n");
+        for r in &results {
+            full_report.push_str(&format!("| {} | {} | {} | {} | {} | {} |\n",
+                r.position, r.original, r.category.label(), r.survival_ticks, r.final_energy, r.final_pop));
+        }
+        full_report.push_str(&format!("\n{}\n\n", knockout::summarize(&results)));
+
+        for r in &results {
+            all_csv.push_str(&format!("{},{},{},{},{},{},{},{}\n",
+                name, r.position, r.cell_index, r.original, r.category.label(), r.survival_ticks, r.final_energy, r.final_pop));
+        }
+    }
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-014-gate-learning";
+    fs::write(format!("{}/knockout_analysis.md", dir), &full_report).expect("write");
+    fs::write(format!("{}/data/knockout.csv", dir), &all_csv).expect("write");
+    eprintln!("\nResults: {}/knockout_analysis.md", dir);
+    println!("{}", full_report);
 }
