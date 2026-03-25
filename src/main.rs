@@ -24,6 +24,16 @@ use cell_vm::{CellConfig, CellWorld, cell_seed_a, cell_seed_b, cell_seed_f, cell
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    // Thread limit: --threads N (default 12, leaves headroom for system)
+    let num_threads = args.iter().position(|a| a == "--threads")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(12);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .unwrap_or(()); // ignore if already initialized
+
     // TUI mode
     if args.iter().any(|a| a == "--tui") {
         if args.iter().any(|a| a == "--cell") {

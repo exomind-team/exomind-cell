@@ -1,5 +1,6 @@
 #!/bin/bash
 # EXP-009: Real CPU Food Modulation — FROZEN PARAMETERS
+export RAYON_NUM_THREADS=12  # Max 12 threads (of 32), leave headroom for system
 # Do NOT modify without Leader approval.
 
 # VM Mode
