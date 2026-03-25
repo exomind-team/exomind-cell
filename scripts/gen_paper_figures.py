@@ -7,10 +7,23 @@ import os
 try:
     import matplotlib
     matplotlib.use('Agg')
-    matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
-    matplotlib.rcParams['axes.unicode_minus'] = False
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
+    plt.rcParams.update({
+        'font.size': 10,
+        'axes.titlesize': 12,
+        'axes.labelsize': 10,
+        'xtick.labelsize': 9,
+        'ytick.labelsize': 9,
+        'legend.fontsize': 9,
+        'figure.figsize': (8, 5),
+        'figure.dpi': 300,
+        'lines.linewidth': 1.5,
+        'font.sans-serif': ['SimHei', 'Microsoft YaHei'],
+        'axes.unicode_minus': False,
+    })
+    EXP_COLOR = '#E74C3C'
+    CTRL_COLOR = '#3498DB'
 except ImportError:
     print("Need: pip install matplotlib")
     exit(1)
@@ -33,17 +46,17 @@ def fig_refresh_distribution():
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-    ax1.hist(exp, bins=20, alpha=0.7, color='#2196F3', label='实验组（有衰减）')
-    ax1.hist(ctrl, bins=20, alpha=0.7, color='#FF9800', label='对照组（无衰减）')
-    ax1.set_xlabel('REFRESH 比例 (%)', fontsize=12)
-    ax1.set_ylabel('种子数量', fontsize=12)
-    ax1.set_title('REFRESH 分布（100 个种子）', fontsize=13)
+    ax1.hist(exp, bins=20, alpha=0.7, color=EXP_COLOR, label='实验组（有衰减）')
+    ax1.hist(ctrl, bins=20, alpha=0.7, color=CTRL_COLOR, label='对照组（无衰减）')
+    ax1.set_xlabel('REFRESH 比例 (%)')
+    ax1.set_ylabel('种子数量')
+    ax1.set_title('REFRESH 分布（100 个种子）')
     ax1.legend(fontsize=11)
 
     ax2.boxplot([exp, ctrl], tick_labels=['实验组', '对照组'],
                 boxprops=dict(color='#333'), medianprops=dict(color='red'))
-    ax2.set_ylabel('REFRESH 比例 (%)', fontsize=12)
-    ax2.set_title('REFRESH：实验组 vs 对照组', fontsize=13)
+    ax2.set_ylabel('REFRESH 比例 (%)')
+    ax2.set_title('REFRESH：实验组 vs 对照组')
 
     plt.tight_layout()
     plt.savefig(f"{FIG}/fig_refresh_distribution.png", dpi=200)
@@ -69,19 +82,19 @@ def fig_gate_history():
     # Bar chart
     means = [sum(exp_ref)/len(exp_ref), sum(ctrl_ref)/len(ctrl_ref)]
     bars = ax1.bar(['丰裕→匮乏', '一直匮乏'], means,
-                   color=['#4CAF50', '#f44336'], alpha=0.8)
-    ax1.set_ylabel('REFRESH 比例 (%)', fontsize=12)
-    ax1.set_title('GATE 历史效应 (p<0.0001, d=1.12)', fontsize=13)
+                   color=[EXP_COLOR, CTRL_COLOR], alpha=0.8)
+    ax1.set_ylabel('REFRESH 比例 (%)')
+    ax1.set_title('GATE 历史效应 (p<0.0001, d=1.12)')
     for bar, val in zip(bars, means):
         ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
-                f'{val:.1f}%', ha='center', fontsize=11)
+                f'{val:.1f}%', ha='center')
 
     # Distribution
-    ax2.hist(exp_ref, bins=20, alpha=0.7, color='#4CAF50', label='丰裕→匮乏')
-    ax2.hist(ctrl_ref, bins=20, alpha=0.7, color='#f44336', label='一直匮乏')
-    ax2.set_xlabel('REFRESH 比例 (%)', fontsize=12)
-    ax2.set_ylabel('种子数量', fontsize=12)
-    ax2.set_title('REFRESH 分布（按历史分组）', fontsize=13)
+    ax2.hist(exp_ref, bins=20, alpha=0.7, color=EXP_COLOR, label='丰裕→匮乏')
+    ax2.hist(ctrl_ref, bins=20, alpha=0.7, color=CTRL_COLOR, label='一直匮乏')
+    ax2.set_xlabel('REFRESH 比例 (%)')
+    ax2.set_ylabel('种子数量')
+    ax2.set_title('REFRESH 分布（按历史分组）')
     ax2.legend(fontsize=11)
 
     plt.tight_layout()
@@ -106,9 +119,9 @@ def fig_2x2_matrix():
     im = ax.imshow(matrix, cmap='RdYlGn', vmin=30, vmax=95, aspect='auto')
 
     ax.set_xticks([0, 1])
-    ax.set_xticklabels(['无 GATE', '有 GATE'], fontsize=12)
+    ax.set_xticklabels(['无 GATE', '有 GATE'])
     ax.set_yticks([0, 1])
-    ax.set_yticklabels(['优化参数\n(food=500)', '非优化参数\n(food=50)'], fontsize=12)
+    ax.set_yticklabels(['优化参数\n(food=500)', '非优化参数\n(food=50)'])
 
     for i in range(2):
         for j in range(2):
@@ -118,7 +131,7 @@ def fig_2x2_matrix():
             ax.text(j, i, f'{val}%\n{sig}', ha='center', va='center',
                    fontsize=16, fontweight='bold', color=color)
 
-    ax.set_title('GATE × 参数交互效应\n（历史效应方向胜率）', fontsize=14)
+    ax.set_title('GATE × 参数交互效应\n（历史效应方向胜率）')
     plt.colorbar(im, label='方向胜率 (%)')
     plt.tight_layout()
     plt.savefig(f"{FIG}/fig_2x2_matrix.png", dpi=200)
@@ -143,13 +156,13 @@ def fig_instruction_ratios():
     width = 0.35
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars1 = ax.bar([i - width/2 for i in x], exp_means, width, label='实验组', color='#2196F3', alpha=0.8)
-    bars2 = ax.bar([i + width/2 for i in x], ctrl_means, width, label='对照组', color='#FF9800', alpha=0.8)
+    bars1 = ax.bar([i - width/2 for i in x], exp_means, width, label='实验组', color=EXP_COLOR, alpha=0.8)
+    bars2 = ax.bar([i + width/2 for i in x], ctrl_means, width, label='对照组', color=CTRL_COLOR, alpha=0.8)
 
-    ax.set_ylabel('占比 (%)', fontsize=12)
-    ax.set_title('指令比例：实验组 vs 对照组（100 个种子）', fontsize=13)
+    ax.set_ylabel('占比 (%)')
+    ax.set_title('指令比例：实验组 vs 对照组（100 个种子）')
     ax.set_xticks(x)
-    ax.set_xticklabels(['进食', '刷新', '复制'], fontsize=12)
+    ax.set_xticklabels(['进食', '刷新', '复制'])
     ax.legend(fontsize=11)
 
     for bars in [bars1, bars2]:
@@ -193,14 +206,14 @@ def fig_knockout():
     beneficial = [organisms[n]['beneficial'] for n in names]
 
     x = range(len(names))
-    ax.bar(x, lethal, color='#f44336', label='致死/严重', alpha=0.8)
+    ax.bar(x, lethal, color=CTRL_COLOR, label='致死/严重', alpha=0.8)
     ax.bar(x, neutral, bottom=lethal, color='#9E9E9E', label='中性', alpha=0.8)
-    ax.bar(x, beneficial, bottom=[l+n for l,n in zip(lethal, neutral)], color='#4CAF50', label='有益', alpha=0.8)
+    ax.bar(x, beneficial, bottom=[l+n for l,n in zip(lethal, neutral)], color=EXP_COLOR, label='有益', alpha=0.8)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(names, fontsize=11)
-    ax.set_ylabel('代码细胞数', fontsize=12)
-    ax.set_title('敲除分析：必要 vs 非必要指令', fontsize=13)
+    ax.set_xticklabels(names)
+    ax.set_ylabel('代码细胞数')
+    ax.set_title('敲除分析：必要 vs 非必要指令')
     ax.legend(fontsize=11)
 
     for i, n in enumerate(names):
