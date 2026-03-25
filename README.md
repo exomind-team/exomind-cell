@@ -8,6 +8,7 @@
   <a href="https://github.com/exomind-team/exomind-cell/actions"><img src="https://github.com/exomind-team/exomind-cell/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-CCOPL--1.0-blue" alt="License: CCOPL-1.0"></a>
   <a href="https://github.com/exomind-team/exomind-cell/releases"><img src="https://img.shields.io/github/v/release/exomind-team/exomind-cell" alt="Release"></a>
+  <a href="https://doi.org/10.5281/zenodo.19221442"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.19221442.svg" alt="DOI"></a>
 </p>
 
 <p align="center">
@@ -19,6 +20,14 @@
 <p align="center">
   <img src="docs/screenshots/tui-stigmergy.png" width="800" alt="TUI Screenshot">
 </p>
+
+---
+
+## Paper
+
+> **Cognitive Life Science: Preliminary Experimental Validation of the Operational Closure Framework**
+>
+> Lin, JiaHao. (2026). *Preprint.* DOI: [10.5281/zenodo.19221442](https://doi.org/10.5281/zenodo.19221442)
 
 ---
 
