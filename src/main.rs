@@ -18,7 +18,7 @@ use std::fs;
 use std::io::Write as IoWrite;
 use organism::Config;
 use experiment::{run_experiment, analyze_and_report, compute_steady_state, SteadyState};
-use cell_vm::{CellConfig, run_cell_experiment, run_cell_data_experiment, cell_compute_steady_state};
+use cell_vm::{CellConfig, run_cell_experiment, run_cell_data_experiment, run_cell_growth_experiment, cell_compute_steady_state};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -402,6 +402,44 @@ fn run_cell_experiments() {
             ss.avg_population, ss.avg_energy,
             ss.eat_ratio * 100.0, ss.digest_ratio * 100.0,
             ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
+        ));
+    }
+
+    // =========================================================================
+    // Experiment 4: Growth (ALLOC) exploration
+    // =========================================================================
+    report.push_str("\n## Experiment 4: Growth (ALLOC) Exploration (CEM=50, seed=42, 500k ticks)\n\n");
+    report.push_str("Seed E can ALLOC new Energy cells when energy is sufficient (body grows).\n\n");
+    report.push_str("| Setup | Group | Survived | Avg Pop | Avg Cells | Avg Energy | EAT% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|-------|-------|----------|---------|----------|-----------|------|----------|--------|\n");
+
+    eprintln!(">>> Experiment 4: Growth (ALLOC)");
+
+    let mut growth_exp = CellConfig::experimental();
+    growth_exp.cell_energy_max = 50;
+    let growth_exp_snap = run_cell_growth_experiment("cell_growth_exp", growth_exp, 42);
+    let growth_exp_ss = cell_compute_steady_state(&growth_exp_snap);
+
+    let mut growth_ctrl = CellConfig::control();
+    growth_ctrl.cell_energy_max = 50;
+    let growth_ctrl_snap = run_cell_growth_experiment("cell_growth_ctrl", growth_ctrl, 42);
+    let growth_ctrl_ss = cell_compute_steady_state(&growth_ctrl_snap);
+
+    // Baseline without growth seeds
+    let mut nogrow_exp = CellConfig::experimental();
+    nogrow_exp.cell_energy_max = 50;
+    let nogrow_exp_snap = run_cell_experiment("cell_nogrow_exp", nogrow_exp, 42);
+    let nogrow_exp_ss = cell_compute_steady_state(&nogrow_exp_snap);
+
+    for (setup, group, ss) in [
+        ("With ALLOC", "Exp", &growth_exp_ss), ("With ALLOC", "Ctrl", &growth_ctrl_ss),
+        ("No ALLOC", "Exp", &nogrow_exp_ss),
+    ] {
+        report.push_str(&format!(
+            "| {} | {} | {} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+            setup, group, if ss.survived { "YES" } else { "NO" },
+            ss.avg_population, ss.avg_cell_count, ss.avg_energy,
+            ss.eat_ratio * 100.0, ss.refresh_ratio * 100.0, ss.divide_ratio * 100.0,
         ));
     }
 

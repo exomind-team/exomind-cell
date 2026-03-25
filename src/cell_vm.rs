@@ -556,8 +556,23 @@ impl CellWorld {
                 org.ip += 1;
             }
 
-            // EMIT/SAMPLE: not implemented in cell mode
-            Instruction::Emit(_) | Instruction::Sample(_) => {
+            // EMIT(n) = ALLOC in cell mode: append a new cell
+            // n=0: Energy cell, n=1: Stomach cell, else: Energy cell
+            // Costs 3 energy. Bigger body = more REFRESH needed.
+            Instruction::Emit(n) => {
+                let alloc_cost = 3u8;
+                if org.deduct_energy(alloc_cost) {
+                    let new_cell = match n % 2 {
+                        0 => Cell::energy(0, config.freshness_max),
+                        _ => Cell::stomach(0, config.freshness_max),
+                    };
+                    org.cells.push(new_cell);
+                }
+                org.ip += 1;
+            }
+
+            // SAMPLE: not implemented in cell mode
+            Instruction::Sample(_) => {
                 org.ip += 1;
             }
         }
@@ -735,6 +750,39 @@ pub fn cell_seed_d(config: &CellConfig) -> CellOrganism {
     CellOrganism::new(cells)
 }
 
+/// Seed E: Growth-oriented organism with ALLOC.
+///
+/// Strategy: EAT, DIGEST, REFRESH, check energy. If energy high enough,
+/// ALLOC a new Energy cell (body grows). Then DIVIDE if really rich.
+/// Trade-off: bigger body = more energy cap but more REFRESH cost.
+pub fn cell_seed_e(config: &CellConfig) -> CellOrganism {
+    let f = config.freshness_max;
+    let cem = config.cell_energy_max;
+    let cells = vec![
+        Cell::code(Instruction::Eat, f),            // 0: eat
+        Cell::code(Instruction::Load(0, 0), f),     // 1: DIGEST
+        Cell::code(Instruction::Refresh, f),         // 2: refresh
+        Cell::code(Instruction::SenseSelf(1), f),    // 3: r1 = energy
+        Cell::code(Instruction::Cmp(1, 4), f),      // 4: r0 = (r1 > r4)? r4 = ALLOC threshold
+        Cell::code(Instruction::Jnz(2), f),         // 5: if enough energy, skip to ALLOC
+        Cell::code(Instruction::Jmp(-6), f),         // 6: loop back
+        Cell::code(Instruction::Emit(0), f),        // 7: ALLOC Energy cell (Emit(0) in cell mode)
+        Cell::code(Instruction::Cmp(1, 5), f),      // 8: r0 = (r1 > r5)? r5 = DIVIDE threshold
+        Cell::code(Instruction::Jnz(2), f),         // 9: if very rich, skip to DIVIDE
+        Cell::code(Instruction::Jmp(-10), f),        // 10: loop back
+        Cell::code(Instruction::Divide, f),          // 11: divide
+        Cell::code(Instruction::Jmp(-12), f),        // 12: loop back
+        Cell::stomach(0, f),
+        Cell::stomach(0, f),
+        Cell::energy(cem, f),
+        Cell::energy(cem, f),
+    ];
+    let mut org = CellOrganism::new(cells);
+    org.registers[4] = (cem as i32) * 2;  // ALLOC threshold: total energy > 2 full cells
+    org.registers[5] = (cem as i32) * 3;  // DIVIDE threshold: total energy > 3 full cells
+    org
+}
+
 // ============================================================================
 // Experiment runner
 // ============================================================================
@@ -743,6 +791,7 @@ pub struct CellSteadyState {
     pub survived: bool,
     pub avg_population: f64,
     pub avg_energy: f64,
+    pub avg_cell_count: f64,
     pub eat_ratio: f64,
     pub digest_ratio: f64,
     pub refresh_ratio: f64,
@@ -760,7 +809,7 @@ pub fn cell_compute_steady_state(snapshots: &[CellSnapshot]) -> CellSteadyState 
     if second_half.is_empty() {
         return CellSteadyState {
             survived: snapshots.last().map(|s| s.population > 0).unwrap_or(false),
-            avg_population: 0.0, avg_energy: 0.0,
+            avg_population: 0.0, avg_energy: 0.0, avg_cell_count: 0.0,
             eat_ratio: 0.0, digest_ratio: 0.0, refresh_ratio: 0.0, divide_ratio: 0.0,
         };
     }
@@ -770,6 +819,7 @@ pub fn cell_compute_steady_state(snapshots: &[CellSnapshot]) -> CellSteadyState 
         survived: true,
         avg_population: second_half.iter().map(|s| s.population as f64).sum::<f64>() / n,
         avg_energy: second_half.iter().map(|s| s.avg_energy).sum::<f64>() / n,
+        avg_cell_count: second_half.iter().map(|s| s.avg_cell_count).sum::<f64>() / n,
         eat_ratio: second_half.iter().map(|s| s.eat_ratio).sum::<f64>() / n,
         digest_ratio: second_half.iter().map(|s| s.digest_ratio).sum::<f64>() / n,
         refresh_ratio: second_half.iter().map(|s| s.refresh_ratio).sum::<f64>() / n,
@@ -817,6 +867,25 @@ pub fn run_cell_data_experiment(name: &str, config: CellConfig, seed: u64) -> Ve
     let safe_name = name.replace(' ', "_");
     world.export_csv(&format!("D:/project/d0-vm/data/{}.csv", safe_name));
 
+    world.snapshots
+}
+
+/// Run cell experiment with Seed E (growth/ALLOC) organisms.
+pub fn run_cell_growth_experiment(name: &str, config: CellConfig, seed: u64) -> Vec<CellSnapshot> {
+    eprintln!("\n========================================");
+    eprintln!("Running CELL+GROWTH experiment: {}", name);
+    eprintln!("  freshness_decay={}, cell_energy_max={}", config.freshness_decay, config.cell_energy_max);
+    eprintln!("========================================");
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..5 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..5 { world.add_organism(cell_seed_b(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_e(&config)); }
+
+    world.run();
+
+    let safe_name = name.replace(' ', "_");
+    world.export_csv(&format!("D:/project/d0-vm/data/{}.csv", safe_name));
     world.snapshots
 }
 
