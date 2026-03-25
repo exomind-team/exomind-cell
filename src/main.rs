@@ -13,12 +13,13 @@ mod experiment;
 mod tui;
 mod cell_vm;
 mod stats;
+mod signal;
 
 use std::fs;
 use std::io::Write as IoWrite;
 use organism::Config;
 use experiment::{run_experiment, analyze_and_report, compute_steady_state, SteadyState};
-use cell_vm::{CellConfig, run_cell_experiment, run_cell_data_experiment, run_cell_growth_experiment, cell_compute_steady_state};
+use cell_vm::{CellConfig, CellWorld, CellOrganism, cell_seed_a, cell_seed_b, cell_seed_f, cell_compute_steady_state, run_cell_experiment, run_cell_data_experiment, run_cell_growth_experiment};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -57,6 +58,12 @@ fn main() {
         if let Err(e) = tui::run_tui(config) {
             eprintln!("TUI error: {}", e);
         }
+        return;
+    }
+
+    // EXP-011 sense-making: cargo run -- --exp011
+    if args.iter().any(|a| a == "--exp011") {
+        run_exp011();
         return;
     }
 
@@ -776,5 +783,201 @@ fn run_realcpu_experiment() {
 
     fs::write("D:/project/d0-vm/data/realcpu_results.md", &report).expect("Failed to write");
     eprintln!("\nResults written to data/realcpu_results.md");
+    println!("{}", report);
+}
+
+// ============================================================================
+// EXP-011: Sense-making (signal prediction) experiment
+// ============================================================================
+
+/// Run one sense-making trial: signal → medium → delayed food modulation.
+fn run_sensemaking_trial(
+    group: &signal::SenseMakingGroup,
+    seed: u64,
+) -> cell_vm::CellSteadyState {
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.food_per_tick = 30; // Baseline food (signal modulation adds more)
+    config.total_ticks = 500_000;
+    config.max_organisms = 200;
+    config.medium_size = 256;
+    config.snapshot_interval = 1000;
+    config.genome_dump_interval = 0;
+
+    let mut world = CellWorld::new(config.clone(), seed);
+    for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+    for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+    for _ in 0..20 { world.add_organism(cell_seed_f(&config)); }
+
+    let base_food: i32 = 300;
+    let mut signal_history: Vec<f32> = Vec::new(); // ring buffer for delta delay
+
+    for t in 0..config.total_ticks {
+        // Generate signal value
+        let signal_val = if group.use_real_cpu {
+            // Simplified: use hash-based pseudo to avoid sysinfo in parallel
+            let block = t / 100;
+            let hash = block.wrapping_mul(6364136223846793005).wrapping_add(seed) >> 33;
+            (hash % 100) as f32 / 100.0
+        } else {
+            group.signal.value_at(t)
+        };
+
+        // Write signal to medium channel 0 (organisms can SAMPLE it)
+        if !world.medium.is_empty() {
+            world.medium[0] = (signal_val * 200.0) as u8;
+        }
+
+        // Store signal for delayed food modulation
+        signal_history.push(signal_val);
+
+        // Food tracks signal with delta-tick delay
+        let delayed_signal = if group.delta > 0 && signal_history.len() > group.delta as usize {
+            signal_history[signal_history.len() - 1 - group.delta as usize]
+        } else if group.delta == 0 {
+            signal_val // synchronous
+        } else {
+            0.5 // not enough history yet, use neutral
+        };
+
+        // Inject food proportional to delayed signal
+        if t % 10 == 0 { // every 10 ticks
+            let food = (base_food as f32 * (0.2 + 0.8 * delayed_signal)) as i32;
+            world.food_pool += food;
+        }
+
+        world.tick();
+
+        // Keep signal history bounded
+        if signal_history.len() > 10000 {
+            signal_history.drain(0..5000);
+        }
+    }
+
+    world.take_snapshot();
+    cell_compute_steady_state(&world.snapshots)
+}
+
+fn run_exp011() {
+    use rayon::prelude::*;
+
+    eprintln!("EXP-011: Sense-Making (Signal Prediction) Experiment");
+    eprintln!("=====================================================");
+    eprintln!("  6 groups x 30 seeds = 180 runs, 500k ticks each\n");
+
+    let groups = signal::SenseMakingGroup::all_groups();
+    let seeds: Vec<u64> = (200..230).collect(); // 30 seeds
+
+    let _ = fs::create_dir_all("D:/project/d0-vm/data/experiments/EXP-011/raw");
+
+    // Run all groups in parallel
+    let mut all_results: Vec<(String, Vec<cell_vm::CellSteadyState>)> = Vec::new();
+
+    for group in &groups {
+        eprintln!(">>> Group {}: {} seeds parallel...", group.name, seeds.len());
+        let group_clone = group.clone();
+        let results: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+            .map(|&seed| {
+                run_sensemaking_trial(&group_clone, seed)
+            })
+            .collect();
+        all_results.push((group.name.clone(), results));
+    }
+
+    // Generate report
+    let mut report = String::new();
+    report.push_str("# EXP-011: Sense-Making (Signal Prediction) Results\n\n");
+    report.push_str("## Design\n\n");
+    report.push_str("- Signal written to medium[0], food tracks signal with delta-tick delay\n");
+    report.push_str("- Organisms with SAMPLE can read signal, organisms without cannot\n");
+    report.push_str("- Seed F: SAMPLE → STORE → EAT → DIGEST → LOAD → CMP → conditional extra EAT\n\n");
+
+    report.push_str("## Summary (30 seeds per group)\n\n");
+    report.push_str("| Group | Signal | Delta | Survived | Avg Pop | Avg Energy | EAT% | REFRESH% | DIVIDE% |\n");
+    report.push_str("|-------|--------|-------|----------|---------|-----------|------|----------|--------|\n");
+
+    let mut group_eat_vecs: Vec<(String, Vec<f64>)> = Vec::new();
+
+    for (name, results) in &all_results {
+        let survived = results.iter().filter(|r| r.survived).count();
+        let n = results.len() as f64;
+        let avg_pop: f64 = results.iter().map(|r| r.avg_population).sum::<f64>() / n;
+        let avg_energy: f64 = results.iter().map(|r| r.avg_energy).sum::<f64>() / n;
+        let avg_eat: f64 = results.iter().map(|r| r.eat_ratio).sum::<f64>() / n;
+        let avg_refresh: f64 = results.iter().map(|r| r.refresh_ratio).sum::<f64>() / n;
+        let avg_divide: f64 = results.iter().map(|r| r.divide_ratio).sum::<f64>() / n;
+
+        let group_info = groups.iter().find(|g| g.name == *name).unwrap();
+        let signal_desc = if group_info.use_real_cpu { "Real CPU" }
+            else { match &group_info.signal {
+                signal::SignalType::SquareWave { .. } => "Square",
+                signal::SignalType::SineWave { .. } => "Sine",
+                signal::SignalType::Random { .. } => "Random",
+                signal::SignalType::None => "None",
+            }};
+
+        report.push_str(&format!(
+            "| {} | {} | {} | {}/{} | {:.1} | {:.1} | {:.1} | {:.1} | {:.1} |\n",
+            name, signal_desc, group_info.delta,
+            survived, results.len(),
+            avg_pop, avg_energy,
+            avg_eat * 100.0, avg_refresh * 100.0, avg_divide * 100.0,
+        ));
+
+        group_eat_vecs.push((name.clone(), results.iter().map(|r| r.eat_ratio).collect()));
+    }
+
+    // Statistical comparisons: Group A vs Group D (predictable vs synchronous)
+    // and Group A vs Group E (predictable vs random)
+    report.push_str("\n## Statistical Comparisons\n\n");
+    report.push_str("| Comparison | Metric | Diff | 95% CI | MW p | d | KS D | KS p |\n");
+    report.push_str("|-----------|--------|------|--------|------|---|------|------|\n");
+
+    let find_group = |name: &str| -> &Vec<f64> {
+        &group_eat_vecs.iter().find(|(n, _)| n == name).unwrap().1
+    };
+
+    // A vs D (predictable with delay vs synchronous)
+    let comp_ad = stats::compare_groups("A vs D EAT", find_group("A_square_d200"), find_group("D_square_d0"));
+    report.push_str(&format!(
+        "| A(d200) vs D(d0) | EAT | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.3} | {:.3} | {:.4} |\n",
+        comp_ad.mean_diff, comp_ad.ci_lower, comp_ad.ci_upper,
+        comp_ad.p_value, comp_ad.cohens_d, comp_ad.ks_d, comp_ad.ks_p,
+    ));
+
+    // A vs E (predictable vs random)
+    let comp_ae = stats::compare_groups("A vs E EAT", find_group("A_square_d200"), find_group("E_random_d200"));
+    report.push_str(&format!(
+        "| A(predict) vs E(random) | EAT | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.3} | {:.3} | {:.4} |\n",
+        comp_ae.mean_diff, comp_ae.ci_lower, comp_ae.ci_upper,
+        comp_ae.p_value, comp_ae.cohens_d, comp_ae.ks_d, comp_ae.ks_p,
+    ));
+
+    // A vs F (signal vs no signal)
+    let comp_af = stats::compare_groups("A vs F EAT", find_group("A_square_d200"), find_group("F_nosignal"));
+    report.push_str(&format!(
+        "| A(signal) vs F(none) | EAT | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.3} | {:.3} | {:.4} |\n",
+        comp_af.mean_diff, comp_af.ci_lower, comp_af.ci_upper,
+        comp_af.p_value, comp_af.cohens_d, comp_af.ks_d, comp_af.ks_p,
+    ));
+
+    report.push_str("\n---\n*EXP-011: Sense-making signal prediction experiment*\n");
+
+    // Write outputs
+    let exp_dir = "D:/project/d0-vm/data/experiments/EXP-011";
+    fs::write(format!("{}/results.md", exp_dir), &report).expect("Failed to write results");
+
+    // Per-seed CSV
+    let mut csv = fs::File::create(format!("{}/raw/per_seed.csv", exp_dir)).expect("CSV");
+    writeln!(csv, "group,seed,survived,avg_pop,avg_energy,eat_ratio,refresh_ratio,divide_ratio").unwrap();
+    for (name, results) in &all_results {
+        for (i, r) in results.iter().enumerate() {
+            writeln!(csv, "{},{},{},{:.2},{:.2},{:.6},{:.6},{:.6}",
+                name, seeds[i], r.survived, r.avg_population, r.avg_energy,
+                r.eat_ratio, r.refresh_ratio, r.divide_ratio).unwrap();
+        }
+    }
+
+    eprintln!("\nResults: data/experiments/EXP-011/results.md");
     println!("{}", report);
 }

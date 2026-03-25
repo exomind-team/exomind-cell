@@ -194,6 +194,7 @@ pub struct CellConfig {
     pub complex_food_energy: u8,  // Energy from complex food (default 20, needs 2x DIGEST)
     pub simple_food_rate: i32,    // Simple food per tick
     pub complex_food_rate: i32,   // Complex food per tick
+    pub medium_size: usize,       // Stigmergy medium for SAMPLE instruction
     pub total_ticks: u64,
     pub snapshot_interval: u64,
     pub genome_dump_interval: u64,
@@ -216,6 +217,7 @@ impl CellConfig {
             complex_food_energy: 20,
             simple_food_rate: 30,
             complex_food_rate: 10,
+            medium_size: 0,
             total_ticks: 500_000,
             snapshot_interval: 1000,
             genome_dump_interval: 50_000,
@@ -276,6 +278,7 @@ pub struct CellWorld {
     pub food_pool: i32,
     pub simple_food: i32,   // Simple food pool (low energy, instant)
     pub complex_food: i32,  // Complex food pool (high energy, needs extra DIGEST)
+    pub medium: Vec<u8>,    // Stigmergy medium for SAMPLE/EMIT
     pub tick: u64,
     pub config: CellConfig,
     pub rng: StdRng,
@@ -298,6 +301,7 @@ impl CellWorld {
             food_pool: 500,
             simple_food: 0,
             complex_food: 0,
+            medium: vec![0u8; config.medium_size],
             tick: 0,
             config,
             rng: StdRng::seed_from_u64(seed),
@@ -630,8 +634,12 @@ impl CellWorld {
                 org.ip += 1;
             }
 
-            // SAMPLE: not implemented in cell mode
-            Instruction::Sample(_) => {
+            // SAMPLE(ch): read medium[ch] into R0
+            Instruction::Sample(ch) => {
+                if !self.medium.is_empty() {
+                    let idx = (ch as usize) % self.medium.len();
+                    org.registers[0] = self.medium[idx] as i32;
+                }
                 org.ip += 1;
             }
         }
@@ -840,6 +848,35 @@ pub fn cell_seed_e(config: &CellConfig) -> CellOrganism {
     let mut org = CellOrganism::new(cells);
     org.registers[4] = 30; // ALLOC when energy > 30
     org
+}
+
+/// Seed F: Prediction-oriented organism with SAMPLE + Data cell.
+///
+/// Reads signal from medium channel 0, stores it in Data cell, compares with
+/// previous reading. If signal is changing (rising), eats more aggressively.
+pub fn cell_seed_f(config: &CellConfig) -> CellOrganism {
+    let f = config.freshness_max;
+    let cem = config.cell_energy_max;
+    let cells = vec![
+        Cell::code(Instruction::Sample(0), f),      // 0: r0 = medium[0] (environment signal)
+        Cell::code(Instruction::Store(0, 0), f),    // 1: store r0 to Data cell (current signal)
+        Cell::code(Instruction::Eat, f),             // 2: eat
+        Cell::code(Instruction::Load(0, 0), f),     // 3: DIGEST
+        Cell::code(Instruction::Load(1, 1), f),     // 4: r1 = Data cell (previous signal)
+        Cell::code(Instruction::Cmp(0, 1), f),      // 5: r0 = (current > previous)? signal rising?
+        Cell::code(Instruction::Jnz(2), f),         // 6: if signal changing → extra eat
+        Cell::code(Instruction::Refresh, f),         // 7: normal refresh
+        Cell::code(Instruction::Jmp(-8), f),         // 8: loop back
+        Cell::code(Instruction::Eat, f),             // 9: extra eat (signal rising branch)
+        Cell::code(Instruction::Refresh, f),         // 10: refresh
+        Cell::code(Instruction::Jmp(-11), f),        // 11: loop back
+        Cell::stomach(0, f),
+        Cell::stomach(0, f),
+        Cell::energy(cem, f),
+        Cell::energy(cem, f),
+        Cell::data(0, f),  // stores previous signal reading
+    ];
+    CellOrganism::new(cells)
 }
 
 // ============================================================================
