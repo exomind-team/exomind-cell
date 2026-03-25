@@ -285,15 +285,81 @@ def fig_knockout():
                ha='center', fontsize=10)
 
     plt.tight_layout()
-    plt.savefig(f"{FIG}/fig_knockout.png", dpi=200)
+    plt.savefig(f"{FIG}/fig_knockout.png")
     plt.close()
     print("  Saved fig_knockout.png")
 
+# ============================================================================
+# Fig 6: Value gradient (energy-bucketed instruction ratios)
+# ============================================================================
+def fig_value_gradient():
+    path = "D:/project/d0-vm/docs/experiments/value-gradient/gradient_data.csv"
+    if not os.path.exists(path):
+        print("  Skipping value gradient: no data")
+        return
+
+    rows = read_csv(path)
+    buckets = ['0-20%', '20-40%', '40-60%', '60-80%', '80-100%']
+    x = range(len(buckets))
+    exp = {b: {} for b in buckets}
+    ctrl = {b: {} for b in buckets}
+    for r in rows:
+        d = exp if r['group'] == 'exp' else ctrl
+        d[r['bucket']] = {'eat': float(r['eat_pct'])*100, 'ref': float(r['refresh_pct'])*100, 'div': float(r['divide_pct'])*100}
+
+    fig, ax = plt.subplots()
+    ax.plot(x, [exp[b]['eat'] for b in buckets], 'o-', color=EXP_COLOR, label=L['eat_exp'])
+    ax.plot(x, [exp[b]['ref'] for b in buckets], 's-', color='#2980B9', label=L['ref_exp'])
+    ax.plot(x, [exp[b]['div'] for b in buckets], '^-', color='#27AE60', label=L['div_exp'])
+    ax.plot(x, [ctrl[b]['eat'] for b in buckets], 'o--', color=EXP_COLOR, alpha=0.5, label=L['eat_ctrl'])
+    ax.plot(x, [ctrl[b]['ref'] for b in buckets], 's--', color='#2980B9', alpha=0.5, label=L['ref_ctrl'])
+    ax.plot(x, [ctrl[b]['div'] for b in buckets], '^--', color='#27AE60', alpha=0.5, label=L['div_ctrl'])
+    ax.set_xticks(x)
+    ax.set_xticklabels(buckets)
+    ax.set_xlabel(L['energy_bucket'])
+    ax.set_ylabel(L['instr_ratio'])
+    ax.set_title(L['gradient_title'])
+    ax.legend(loc='upper right', ncol=2)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{FIG}/fig_value_gradient.png")
+    plt.close()
+    print("  Saved fig_value_gradient.png")
+
+# ============================================================================
+# Fig 7: R gradient (REFRESH radius effect)
+# ============================================================================
+def fig_r_gradient():
+    # Data from EXP-006 results
+    r_vals = [1, 2, 3, 5, 8]
+    # From CELL_RESULTS.md EXP-006 data
+    exp_refresh = [0.0, 0.0, 1.5, 11.5, 18.4]
+    exp_divide = [11.1, 11.1, 10.3, 8.9, 0.0]
+    ctrl_refresh = [14.2, 14.2, 14.2, 14.2, 14.2]
+
+    fig, ax = plt.subplots()
+    ax.plot(r_vals, exp_refresh, 'o-', color=EXP_COLOR, label=f"REFRESH ({L['exp_short']})")
+    ax.plot(r_vals, exp_divide, '^-', color='#27AE60', label=f"DIVIDE ({L['exp_short']})")
+    ax.plot(r_vals, ctrl_refresh, 's--', color=CTRL_COLOR, alpha=0.7, label=f"REFRESH ({L['ctrl_short']})")
+
+    ax.set_xlabel('REFRESH ' + ('半径 R' if lang == 'cn' else 'Radius R'))
+    ax.set_ylabel(L['instr_ratio'])
+    ax.set_title('REFRESH ' + ('半径对行为的影响' if lang == 'cn' else 'Radius Effect on Behavior'))
+    ax.set_xticks(r_vals)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{FIG}/fig_r_gradient.png")
+    plt.close()
+    print("  Saved fig_r_gradient.png")
+
 if __name__ == '__main__':
-    print("Generating Paper I figures...\n")
+    print(f"Generating Paper I figures (lang={lang})...\n")
     fig_refresh_distribution()
     fig_gate_history()
     fig_2x2_matrix()
     fig_instruction_ratios()
     fig_knockout()
+    fig_value_gradient()
+    fig_r_gradient()
     print(f"\nAll figures saved to: {FIG}")
