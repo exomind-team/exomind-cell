@@ -90,6 +90,12 @@ fn main() {
         return;
     }
 
+    // GATE x Parameter cross experiment: cargo run -- --exp-cross
+    if args.iter().any(|a| a == "--exp-cross") {
+        run_exp_cross();
+        return;
+    }
+
     // EXP-015a feast/famine cycling: cargo run -- --exp015a
     if args.iter().any(|a| a == "--exp015a") {
         run_exp015a();
@@ -2289,4 +2295,148 @@ fn run_lineage_demo() {
     eprintln!("  Total mutation events: {}", mutations);
     eprintln!("  Ancestry depth (last organism): {}", ancestry_depth);
     eprintln!("  CSV: {}", csv_path);
+}
+
+// ============================================================================
+// EXP-CROSS: GATE × Parameter 2×2 Matrix
+// ============================================================================
+
+fn run_cross_trial(seed: u64, optimized: bool, gate: bool, abundant_first: bool) -> cell_vm::CellSteadyState {
+    let mut config = CellConfig::experimental();
+    config.cell_energy_max = 50;
+    config.data_cell_gating = gate;
+    config.genome_dump_interval = 0;
+
+    if optimized {
+        config.max_organisms = 1000;
+        config.food_per_tick = if abundant_first { 500 } else { 500 }; // optimized always has good food
+        config.total_ticks = 2_000_000;
+        config.snapshot_interval = 10_000;
+    } else {
+        config.max_organisms = 200;
+        config.food_per_tick = if abundant_first { 500 } else { 50 };
+        config.total_ticks = 500_000;
+        config.snapshot_interval = 1000;
+    }
+
+    let mut world = CellWorld::new(config.clone(), seed);
+
+    if gate {
+        if optimized {
+            for _ in 0..30 { world.add_organism(cell_seed_a(&config)); }
+            for _ in 0..30 { world.add_organism(cell_seed_b(&config)); }
+            for _ in 0..40 { world.add_organism(cell_seed_g(&config)); }
+        } else {
+            for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+            for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+            for _ in 0..20 { world.add_organism(cell_seed_g(&config)); }
+        }
+    } else {
+        if optimized {
+            for _ in 0..50 { world.add_organism(cell_seed_a(&config)); }
+            for _ in 0..50 { world.add_organism(cell_seed_b(&config)); }
+        } else {
+            for _ in 0..10 { world.add_organism(cell_seed_a(&config)); }
+            for _ in 0..10 { world.add_organism(cell_seed_b(&config)); }
+        }
+    }
+
+    // For history experiments: switch food at tick 10k
+    if abundant_first && !optimized {
+        let switch_tick: u64 = 10_000;
+        for t in 0..config.total_ticks {
+            if t == switch_tick { world.config.food_per_tick = 50; }
+            world.tick();
+        }
+    } else {
+        world.run();
+    }
+
+    world.take_snapshot();
+    cell_compute_steady_state(&world.snapshots)
+}
+
+fn run_exp_cross() {
+    use rayon::prelude::*;
+
+    eprintln!("EXP-CROSS: GATE x Parameter 2x2 Matrix");
+    eprintln!("========================================\n");
+
+    let seeds: Vec<u64> = (7000..7100).collect(); // 100 seeds
+    let _ = fs::create_dir_all("D:/project/d0-vm/docs/experiments/EXP-CROSS-gate-params/data");
+
+    // Group 2: Optimized + GATE (history: abundant→abundant, testing GATE in good env)
+    eprintln!("Group 2: Optimized + GATE (100 seeds, 2M ticks)...");
+    let g2: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| run_cross_trial(s, true, true, false)).collect();
+
+    // Group 4: Non-optimized + GATE (history: abundant→scarce at 10k)
+    eprintln!("Group 4: Non-optimized + GATE, abundant→scarce (100 seeds, 500k ticks)...");
+    let g4_exp: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| run_cross_trial(s, false, true, true)).collect();
+
+    // Group 4 control: Non-optimized + GATE, always scarce
+    eprintln!("Group 4 ctrl: Non-optimized + GATE, always scarce...");
+    let g4_ctrl: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| run_cross_trial(s, false, true, false)).collect();
+
+    // Group 3 equivalent: Non-optimized + No GATE, for comparison
+    eprintln!("Group 3: Non-optimized + No GATE...");
+    let g3: Vec<cell_vm::CellSteadyState> = seeds.par_iter()
+        .map(|&s| run_cross_trial(s, false, false, false)).collect();
+
+    // Compute history replication rate for Group 4 (GATE)
+    let g4_ref_exp: Vec<f64> = g4_exp.iter().map(|r| r.refresh_ratio).collect();
+    let g4_ref_ctrl: Vec<f64> = g4_ctrl.iter().map(|r| r.refresh_ratio).collect();
+    let g4_ref_positive = g4_ref_exp.iter().zip(g4_ref_ctrl.iter())
+        .filter(|(e, c)| e > c).count();
+
+    let comp_g4 = stats::compare_groups("REFRESH", &g4_ref_exp, &g4_ref_ctrl);
+
+    // Group 2 stats
+    let g2_survived = g2.iter().filter(|r| r.survived).count();
+    let g2_ref: Vec<f64> = g2.iter().map(|r| r.refresh_ratio).collect();
+    let g2_pop: Vec<f64> = g2.iter().map(|r| r.avg_population).collect();
+
+    // Group 3 stats
+    let g3_survived = g3.iter().filter(|r| r.survived).count();
+    let g3_ref: Vec<f64> = g3.iter().map(|r| r.refresh_ratio).collect();
+
+    let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
+
+    let mut report = String::new();
+    report.push_str("# EXP-CROSS: GATE x Parameter 2x2 Matrix\n\n");
+    report.push_str("## 2x2 Matrix\n\n");
+    report.push_str("| | No GATE | GATE |\n");
+    report.push_str("|---|---------|------|\n");
+    report.push_str(&format!(
+        "| Optimized (food=500, max=1000, 2M) | G1: existing data (p<0.001) | G2: {}/100 survived, REFRESH {:.1}%, Pop {:.0} |\n",
+        g2_survived, avg(&g2_ref) * 100.0, avg(&g2_pop)));
+    report.push_str(&format!(
+        "| Non-optimized (food=50, max=200, 500k) | G3: {}/100 survived, REFRESH {:.1}% | G4: history repl rate **{:.0}%** (p={:.4}) |\n",
+        g3_survived, avg(&g3_ref) * 100.0,
+        g4_ref_positive as f64, comp_g4.p_value));
+
+    report.push_str("\n## Group 4 Detail (Non-optimized + GATE, history experiment)\n\n");
+    report.push_str(&format!("- Abundant→Scarce REFRESH: {:.1}%\n", avg(&g4_ref_exp) * 100.0));
+    report.push_str(&format!("- Always Scarce REFRESH: {:.1}%\n", avg(&g4_ref_ctrl) * 100.0));
+    report.push_str(&format!("- Direction win: {}/100 ({:.0}%)\n", g4_ref_positive, g4_ref_positive as f64));
+    report.push_str(&format!("- MW p={:.4}, d={:.3}\n", comp_g4.p_value, comp_g4.cohens_d));
+
+    report.push_str("\n---\n*EXP-CROSS: GATE x Parameter interaction*\n");
+
+    let dir = "D:/project/d0-vm/docs/experiments/EXP-CROSS-gate-params";
+    fs::write(format!("{}/experiment.md", dir), &report).expect("write");
+
+    let mut csv = fs::File::create(format!("{}/data/per_seed.csv", dir)).expect("csv");
+    writeln!(csv, "group,seed,survived,refresh,eat,divide,pop,energy").unwrap();
+    for (i, &seed) in seeds.iter().enumerate() {
+        let r = &g2[i]; writeln!(csv, "g2_opt_gate,{},{},{:.6},{:.6},{:.6},{:.2},{:.2}", seed, r.survived, r.refresh_ratio, r.eat_ratio, r.divide_ratio, r.avg_population, r.avg_energy).unwrap();
+        let r = &g3[i]; writeln!(csv, "g3_nonopt_nogate,{},{},{:.6},{:.6},{:.6},{:.2},{:.2}", seed, r.survived, r.refresh_ratio, r.eat_ratio, r.divide_ratio, r.avg_population, r.avg_energy).unwrap();
+        let r = &g4_exp[i]; writeln!(csv, "g4_nonopt_gate_exp,{},{},{:.6},{:.6},{:.6},{:.2},{:.2}", seed, r.survived, r.refresh_ratio, r.eat_ratio, r.divide_ratio, r.avg_population, r.avg_energy).unwrap();
+        let r = &g4_ctrl[i]; writeln!(csv, "g4_nonopt_gate_ctrl,{},{},{:.6},{:.6},{:.6},{:.2},{:.2}", seed, r.survived, r.refresh_ratio, r.eat_ratio, r.divide_ratio, r.avg_population, r.avg_energy).unwrap();
+    }
+
+    eprintln!("\nResults: {}/experiment.md", dir);
+    println!("{}", report);
 }
