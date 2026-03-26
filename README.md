@@ -146,3 +146,13 @@ docs/
 ## License
 
 [CCOPL-1.0](LICENSE) (Collective Commons Open Public License)
+
+---
+
+<div align="center">
+
+**Part of the [ExoMind](https://github.com/exomind-team/exomind) ecosystem**
+
+[ExoMind](https://github.com/exomind-team/exomind) · [Wattson](https://github.com/exomind-team/wattson) · [CCOPL License](https://github.com/exomind-team/ccopl)
+
+</div>
