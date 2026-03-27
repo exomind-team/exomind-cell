@@ -60,13 +60,17 @@ GB/T 7714 格式：
 cargo run --release -- --tui --cell          # Cell v3 模式（推荐）
 cargo run --release -- --tui                 # 经典 v2 模式
 
+# GUI spike（egui + wgpu 后端）
+cargo run -- --gui                           # 原生汤视图原型
+cargo run -- --gui --gui-smoke-test 5        # 打开后自动关闭的 smoke test
+
 # 无界面实验
 cargo run --release -- --cell                # v3 cell 实验（5 种子，500k ticks）
 cargo run --release -- --stats               # 100 种子并行分析（2M ticks）
 cargo run --release -- --run-v2              # v2 全局能量实验
 
 # 测试
-cargo test                                   # 24 个单元测试
+cargo test                                   # 33 个单元测试
 ```
 
 ## 功能特性
@@ -75,9 +79,35 @@ cargo test                                   # 24 个单元测试
 - **14 条指令集**：NOP, INC, DEC, CMP, JMP, JNZ, LOAD, STORE, SENSE_SELF, EAT, REFRESH, DIVIDE, EMIT, SAMPLE
 - **Stigmergy 通信**：共享化学介质的间接通信机制
 - **交互式 TUI**：实时可视化，支持暂停、单步、变速、个体查看
+- **GUI spike**：`egui + wgpu` 汤视图，位置仅存在于 GUI 布局层
 - **统计分析**：bootstrap CI、Mann-Whitney U、Kolmogorov-Smirnov 检验
 - **并行执行**：rayon 多核并行实验
 - **100 种子验证**：所有行为指标 p<0.001
+
+## GUI Spike 现状
+
+当前 GUI 原型是一个**非语义空间（non-semantic space，非真实空间语义）**的汤视图：
+
+- `CellWorld` 不增加空间坐标，不修改 VM 生存逻辑
+- 个体位置仅存在于 GUI 的力导向布局辅助层
+- 渲染通过 `eframe` 走 `wgpu` 后端
+- `Pause` 现在会同时冻结 VM tick 和力导向布局
+- 画面内新增性能 overlay，可显示 CPU 帧时间 / 模拟 / 布局 / UI 时间
+- 圆圈编码规则：
+  - 颜色 = 能量
+  - 半径 = cell 数量
+  - 透明度 = freshness
+
+当前渲染路径是 `egui painter on wgpu`。代码里也预留了后续升级到自定义 `wgpu render pass` 和 compute 布局的边界。
+
+### GUI 使用说明
+
+- `Pause`：停止模拟推进，并冻结汤视图布局。
+- `Step`：在暂停状态下推进一个模拟步。
+- `Ticks / frame`：数值越大，进化越快，但 CPU 压力越高，流畅度可能下降。
+- 红色闪烁通常表示低能量 / 低 freshness 的个体在快速变化，不一定是渲染 bug。
+- 个体跑到边缘主要是 GUI 布局平衡结果，不是 VM 里的真实空间移动。
+- 若中文仍显示异常，可设置环境变量 `EXOMIND_CELL_UI_FONT` 指向一个本机 CJK 字体文件（例如 `C:\Windows\Fonts\NotoSansSC-VF.ttf`）。
 
 ## TUI 控制
 
@@ -115,6 +145,8 @@ src/
   world.rs        -- v2 世界模拟引擎
   experiment.rs   -- v2 实验运行器、报告生成
   cell_vm.rs      -- v3 Cell 虚拟机（Cell 类型、CellOrganism、CellWorld）
+  gui.rs          -- egui/wgpu 原生 GUI spike
+  soup.rs         -- 仅供 GUI 使用的汤布局与渲染快照辅助层
   stats.rs        -- 统计检验（bootstrap、Mann-Whitney、KS）
   tui.rs          -- ratatui 终端可视化（v2 + Cell v3）
   main.rs         -- CLI 入口
@@ -130,12 +162,13 @@ docs/
 - [VM 设计](docs/design.md) — 指令集、有机体结构、cell 类型
 - [实验注册表](docs/experiments.md) — 全部 7 个实验的参数和结果
 - [GUI 方案](docs/gui-design-proposal.md) — 未来图形界面设计
+- [GUI Spike 计划](docs/plans/2026-03-26-egui-wgpu-soup-view.md) — 当前原型的实现计划
 
 ## 技术栈
 
 - **语言**：Rust 2021
-- **依赖**：`rand 0.8`、`rayon 1.10`、`ratatui 0.29`、`crossterm 0.28`
-- **测试**：24 个单元测试
+- **依赖**：`rand 0.8`、`rayon 1.10`、`ratatui 0.29`、`crossterm 0.28`、`eframe 0.31`
+- **测试**：33 个单元测试
 - **CI**：GitHub Actions（构建 + 测试 + clippy）
 
 ## 许可证

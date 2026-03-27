@@ -12,6 +12,8 @@ mod world;
 mod experiment;
 mod tui;
 mod cell_vm;
+mod gui;
+mod soup;
 mod stats;
 mod signal;
 mod lineage014;
@@ -69,6 +71,31 @@ fn main() {
         eprintln!("Starting v2 TUI mode...");
         if let Err(e) = tui::run_tui(config) {
             eprintln!("TUI error: {}", e);
+        }
+        return;
+    }
+
+    // GUI spike mode: cargo run -- --gui [--gui-smoke-test]
+    if args.iter().any(|a| a == "--gui") {
+        let mut config = CellConfig::experimental();
+        config.cell_energy_max = 50;
+        config.food_per_tick = 500;
+        config.max_organisms = 200;
+        config.total_ticks = 500_000;
+        config.snapshot_interval = 100;
+        config.genome_dump_interval = 0;
+
+        let smoke_frames = args
+            .iter()
+            .position(|a| a == "--gui-smoke-test")
+            .and_then(|index| args.get(index + 1))
+            .and_then(|value| value.parse::<u32>().ok())
+            .or_else(|| args.iter().any(|a| a == "--gui-smoke-test").then_some(60));
+
+        if let Err(error) = gui::run_cell_gui(config, gui::GuiRuntime {
+            smoke_test_frames: smoke_frames,
+        }) {
+            eprintln!("GUI error: {}", error);
         }
         return;
     }
@@ -179,6 +206,8 @@ fn main() {
   ║  Modes:                                    ║
   ║    --tui            v2 Classic TUI         ║
   ║    --tui --cell     v3 Cell-based TUI      ║
+  ║    --gui            Cell v3 GUI spike      ║
+  ║    --gui --gui-smoke-test [N]              ║
   ║    --tui --cell --no-decay  v3 Control     ║
   ║    --cell           v3 Cell experiments     ║
   ║    --stats          100-seed parallel       ║

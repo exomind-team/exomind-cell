@@ -65,13 +65,17 @@ GB/T 7714 format:
 cargo run --release -- --tui --cell          # Cell v3 mode (recommended)
 cargo run --release -- --tui                 # Classic v2 mode
 
+# GUI spike (egui on wgpu backend)
+cargo run -- --gui                           # Native soup view prototype
+cargo run -- --gui --gui-smoke-test 5        # Open + auto-close smoke test
+
 # Headless experiments
 cargo run --release -- --cell                # v3 cell experiments (5 seeds, 500k ticks)
 cargo run --release -- --stats               # 100-seed parallel analysis (2M ticks)
 cargo run --release -- --run-v2              # v2 global energy experiments
 
 # Tests
-cargo test                                   # 24 unit tests
+cargo test                                   # 33 unit tests
 ```
 
 ## Features
@@ -80,9 +84,35 @@ cargo test                                   # 24 unit tests
 - **14-instruction set**: NOP, INC, DEC, CMP, JMP, JNZ, LOAD, STORE, SENSE_SELF, EAT, REFRESH, DIVIDE, EMIT, SAMPLE
 - **Stigmergy**: shared chemical medium for indirect organism communication
 - **Interactive TUI**: real-time visualization with pause, step, speed control, organism inspector
+- **GUI spike**: `egui + wgpu` soup view with GUI-only force-directed positions
 - **Statistical analysis**: bootstrap CI, Mann-Whitney U, Kolmogorov-Smirnov test
 - **Parallel execution**: rayon-powered multi-seed experiments (uses all CPU cores)
 - **100-seed validation**: all behavioral metrics p<0.001
+
+## GUI Spike
+
+The current GUI prototype is a **non-semantic soup view**:
+
+- `CellWorld` stays unchanged; no spatial coordinates are added to the VM
+- organism positions live only in the GUI layout helper
+- rendering uses `eframe` with the `wgpu` backend
+- pause now freezes both VM ticks and the force-directed layout
+- an in-scene performance overlay reports CPU frame/sim/layout/UI timings
+- circles encode:
+  - color = energy
+  - radius = cell count
+  - alpha = freshness
+
+The current render path is `egui painter on wgpu`. The code also leaves an explicit seam for a later custom `wgpu` render pass and compute-based layout.
+
+### GUI Usage Notes
+
+- `Pause` stops simulation ticks and freezes the soup layout.
+- `Step` advances a single simulation step while paused.
+- `Ticks / frame` trades visual smoothness for faster evolution; high values can saturate the CPU.
+- Red flicker mostly means low-energy / low-freshness organisms changing state quickly, not a rendering bug.
+- Organisms drifting toward the border are following the GUI layout equilibrium, not real VM movement semantics.
+- If CJK text still renders incorrectly, set `EXOMIND_CELL_UI_FONT` to a local CJK font file such as `C:\Windows\Fonts\NotoSansSC-VF.ttf`.
 
 ## TUI Controls
 
@@ -120,6 +150,8 @@ src/
   world.rs        -- v2 World simulation engine
   experiment.rs   -- v2 experiment runner, report generation
   cell_vm.rs      -- v3 Cell-based VM (Cell types, CellOrganism, CellWorld)
+  gui.rs          -- egui/wgpu native GUI spike
+  soup.rs         -- GUI-only soup layout + render snapshot helpers
   stats.rs        -- Statistical tests (bootstrap, Mann-Whitney, KS)
   tui.rs          -- ratatui terminal visualization (v2 + Cell v3)
   main.rs         -- CLI entry point
@@ -135,12 +167,13 @@ docs/
 - [VM Design](docs/design.md) -- instruction set, organism structure, cell types
 - [Experiment Registry](docs/experiments.md) -- all 7 experiments with parameters and results
 - [GUI Proposal](docs/gui-design-proposal.md) -- future graphical interface design
+- [GUI Spike Plan](docs/plans/2026-03-26-egui-wgpu-soup-view.md) -- implementation plan for the current prototype
 
 ## Tech Stack
 
 - **Language**: Rust 2021
-- **Dependencies**: `rand 0.8`, `rayon 1.10`, `ratatui 0.29`, `crossterm 0.28`
-- **Tests**: 24 unit tests
+- **Dependencies**: `rand 0.8`, `rayon 1.10`, `ratatui 0.29`, `crossterm 0.28`, `eframe 0.31`
+- **Tests**: 33 unit tests
 - **CI**: GitHub Actions (build + test + clippy)
 
 ## License
